@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Funciona sin pantalla táctil (para TV) -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <!-- Soporte Android TV (Leanback) -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/banner"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.FRPMovie"
+        android:usesCleartextTraffic="true">
+
+        <!-- Pantalla de login (entrada principal) -->
+        <activity
+            android:name=".LoginActivity"
+            android:exported="true"
+            android:screenOrientation="unspecified">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <!-- Aparece en celular -->
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- Aparece en Android TV -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Pantalla principal (canales) -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:screenOrientation="unspecified" />
+
+        <!-- Reproductor -->
+        <activity
+            android:name=".PlayerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.FRPMovie.Fullscreen" />
+
+    </application>
+</manifest>
