@@ -4,8 +4,9 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.frpmovie.app.databinding.ActivityPlayerBinding
 
 class PlayerActivity : AppCompatActivity() {
@@ -23,21 +24,20 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun initPlayer() {
-        player = ExoPlayer.Builder(this).build()
+        // DataSource que sigue redirects (clave para canales que redirigen a m3u8)
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setUserAgent("Mozilla/5.0 (Android) ExoPlayer FRPMovie")
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
+
+        player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
         binding.playerView.player = player
 
-        // Detectar el tipo de stream segun la URL
-        val mediaItem = when {
-            url.contains(".m3u8") -> MediaItem.Builder()
-                .setUri(Uri.parse(url))
-                .setMimeType(MimeTypes.APPLICATION_M3U8)
-                .build()
-            url.contains(".ts") -> MediaItem.Builder()
-                .setUri(Uri.parse(url))
-                .setMimeType(MimeTypes.VIDEO_MP2T)
-                .build()
-            else -> MediaItem.fromUri(Uri.parse(url))
-        }
+        // Dejar que ExoPlayer detecte el formato automaticamente (no forzar por extension)
+        val mediaItem = MediaItem.fromUri(Uri.parse(url))
 
         player?.setMediaItem(mediaItem)
         player?.prepare()
