@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
             val i = Intent(this, PlayerActivity::class.java)
             i.putExtra("url", url)
             i.putExtra("name", item.name)
+            i.putExtra("type", currentTab)
             startActivity(i)
         }
 
@@ -62,7 +63,6 @@ class MainActivity : AppCompatActivity() {
     private fun switchTab(tab: String) {
         currentTab = tab
         binding.etSearch.setText("")
-        // Resaltar el boton activo
         val brand = androidx.core.content.ContextCompat.getColor(this, R.color.brand)
         val transparent = android.graphics.Color.TRANSPARENT
         binding.btnLive.setBackgroundColor(if (tab == "live") brand else transparent)
@@ -93,7 +93,6 @@ class MainActivity : AppCompatActivity() {
                 val list = mutableListOf<Channel>()
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
-                    // series usa series_id, el resto usa stream_id
                     val id = if (currentTab == "series") o.optInt("series_id") else o.optInt("stream_id")
                     val logo = if (currentTab == "live") o.optString("stream_icon") else o.optString("cover", o.optString("stream_icon"))
                     list.add(
