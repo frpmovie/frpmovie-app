@@ -2,8 +2,11 @@ package com.frpmovie.app
 
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -24,7 +27,6 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun initPlayer() {
-        // DataSource que sigue redirects (clave para canales que redirigen a m3u8)
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("Mozilla/5.0 (Android) ExoPlayer FRPMovie")
@@ -36,9 +38,19 @@ class PlayerActivity : AppCompatActivity() {
             .build()
         binding.playerView.player = player
 
-        // Dejar que ExoPlayer detecte el formato automaticamente (no forzar por extension)
-        val mediaItem = MediaItem.fromUri(Uri.parse(url))
+        // Mostrar errores reales
+        player?.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                Toast.makeText(
+                    this@PlayerActivity,
+                    "Error: ${error.errorCodeName} - ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+                binding.tvTitle.text = "Error: ${error.errorCodeName}"
+            }
+        })
 
+        val mediaItem = MediaItem.fromUri(Uri.parse(url))
         player?.setMediaItem(mediaItem)
         player?.prepare()
         player?.playWhenReady = true
