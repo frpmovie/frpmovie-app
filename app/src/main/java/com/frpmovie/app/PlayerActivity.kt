@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -16,12 +17,14 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var binding: ActivityPlayerBinding
     private var player: ExoPlayer? = null
     private var url: String = ""
+    private var type: String = "live"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
         url = intent.getStringExtra("url") ?: ""
+        type = intent.getStringExtra("type") ?: "live"
         val name = intent.getStringExtra("name") ?: "Reproduciendo"
         binding.tvTitle.text = name
     }
@@ -38,19 +41,26 @@ class PlayerActivity : AppCompatActivity() {
             .build()
         binding.playerView.player = player
 
-        // Mostrar errores reales
         player?.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 Toast.makeText(
                     this@PlayerActivity,
-                    "Error: ${error.errorCodeName} - ${error.message}",
+                    "Error: ${error.errorCodeName}",
                     Toast.LENGTH_LONG
                 ).show()
-                binding.tvTitle.text = "Error: ${error.errorCodeName}"
             }
         })
 
-        val mediaItem = MediaItem.fromUri(Uri.parse(url))
+        // Canales en vivo = HLS forzado. Películas/series = MP4 directo.
+        val mediaItem = if (type == "live") {
+            MediaItem.Builder()
+                .setUri(Uri.parse(url))
+                .setMimeType(MimeTypes.APPLICATION_M3U8)
+                .build()
+        } else {
+            MediaItem.fromUri(Uri.parse(url))
+        }
+
         player?.setMediaItem(mediaItem)
         player?.prepare()
         player?.playWhenReady = true
