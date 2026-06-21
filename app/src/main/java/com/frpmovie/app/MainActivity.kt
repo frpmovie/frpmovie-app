@@ -4,7 +4,9 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.frpmovie.app.databinding.ActivityMainBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +23,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pass: String
     private val allItems = mutableListOf<Channel>()
     private lateinit var adapter: ChannelAdapter
+    private lateinit var catAdapter: CategoryAdapter
+    private val categories = mutableListOf<Category>()
     private var currentTab = "live"
+    private var currentCat = "all"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,8 +52,21 @@ class MainActivity : AppCompatActivity() {
         binding.recyclerChannels.layoutManager = GridLayoutManager(this, 3)
         binding.recyclerChannels.adapter = adapter
 
+        // Menu lateral de categorias
+        catAdapter = CategoryAdapter(categories) { cat ->
+            currentCat = cat.id
+            binding.drawerLayout.closeDrawers()
+            applyFilter()
+        }
+        binding.recyclerCategories.layoutManager = LinearLayoutManager(this)
+        binding.recyclerCategories.adapter = catAdapter
+
+        binding.btnMenu.setOnClickListener {
+            binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START)
+        }
+
         binding.etSearch.addTextChangedListener(object : android.text.TextWatcher {
-            override fun afterTextChanged(s: android.text.Editable?) { filter(s.toString()) }
+            override fun afterTextChanged(s: android.text.Editable?) { applyFilter() }
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         })
@@ -62,6 +80,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun switchTab(tab: String) {
         currentTab = tab
+        currentCat = "all"
         binding.etSearch.setText("")
         val brand = androidx.core.content.ContextCompat.getColor(this, R.color.brand)
         val transparent = android.graphics.Color.TRANSPARENT
@@ -71,23 +90,34 @@ class MainActivity : AppCompatActivity() {
         loadContent()
     }
 
-    private fun filter(query: String) {
-        val filtered = if (query.isEmpty()) allItems
-        else allItems.filter { it.name.contains(query, ignoreCase = true) }
+    private fun applyFilter() {
+        val query = binding.etSearch.text.toString()
+        var filtered = if (currentCat == "all") allItems
+            else allItems.filter { it.category == currentCat }
+        if (query.isNotEmpty()) {
+            filtered = filtered.filter { it.name.contains(query, ignoreCase = true) }
+        }
         adapter.update(filtered)
+        binding.tvCount.text = "${filtered.size} de ${allItems.size}"
     }
 
     private fun loadContent() {
         binding.progress.visibility = View.VISIBLE
         binding.tvCount.text = "Cargando..."
-        val urlStr = when (currentTab) {
+        val streamsUrl = when (currentTab) {
             "movies" -> Config.vodStreams(user, pass)
             "series" -> Config.seriesStreams(user, pass)
             else -> Config.liveStreams(user, pass)
         }
+        val catsUrl = when (currentTab) {
+            "movies" -> Config.vodCategories(user, pass)
+            "series" -> Config.seriesCategories(user, pass)
+            else -> Config.liveCategories(user, pass)
+        }
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val req = Request.Builder().url(urlStr).build()
+                // Cargar streams
+                val req = Request.Builder().url(streamsUrl).build()
                 val body = client.newCall(req).execute().body?.string() ?: "[]"
                 val arr = JSONArray(body)
                 val list = mutableListOf<Channel>()
@@ -104,9 +134,29 @@ class MainActivity : AppCompatActivity() {
                         )
                     )
                 }
+
+                // Cargar categorias
+                val reqCat = Request.Builder().url(catsUrl).build()
+                val bodyCat = client.newCall(reqCat).execute().body?.string() ?: "[]"
+                val arrCat = JSONArray(bodyCat)
+                val catList = mutableListOf<Category>()
+                catList.add(Category("all", "📋 Todas", list.size))
+                for (i in 0 until arrCat.length()) {
+                    val o = arrCat.getJSONObject(i)
+                    val catId = o.optString("category_id")
+                    val catName = o.optString("category_name")
+                    val count = list.count { it.category == catId }
+                    if (count > 0) {
+                        catList.add(Category(catId, catName, count))
+                    }
+                }
+
                 withContext(Dispatchers.Main) {
                     allItems.clear()
                     allItems.addAll(list)
+                    catAdapter.update(catList)
+                    catAdapter.setSelected("all")
+                    currentCat = "all"
                     adapter.update(allItems)
                     binding.progress.visibility = View.GONE
                     val tipo = when (currentTab) {
