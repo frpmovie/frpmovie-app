@@ -1,184 +1,123 @@
 package com.frpmovie.app
 
-import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import android.view.WindowManager
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.drawerlayout.widget.DrawerLayout
-import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.LinearLayoutManager
-import com.frpmovie.app.databinding.ActivityMainBinding
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONArray
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.frpmovie.app.databinding.ActivityPlayerBinding
+import org.videolan.libvlc.LibVLC
+import org.videolan.libvlc.Media
+import org.videolan.libvlc.MediaPlayer
 
-class MainActivity : AppCompatActivity() {
-    private lateinit var binding: ActivityMainBinding
-    private val client = OkHttpClient()
-    private lateinit var user: String
-    private lateinit var pass: String
-    private val allItems = mutableListOf<Channel>()
-    private lateinit var adapter: ChannelAdapter
-    private lateinit var catAdapter: CategoryAdapter
-    private val categories = mutableListOf<Category>()
-    private var currentTab = "live"
-    private var currentCat = "all"
+class PlayerActivity : AppCompatActivity() {
+    private lateinit var binding: ActivityPlayerBinding
+    private var player: ExoPlayer? = null
+    private var libVlc: LibVLC? = null
+    private var vlcPlayer: MediaPlayer? = null
+    private var url: String = ""
+    private var type: String = "live"
+    private var usingVlc = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
+        binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // Mantener la pantalla encendida mientras se reproduce
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        url = intent.getStringExtra("url") ?: ""
+        type = intent.getStringExtra("type") ?: "live"
+        val name = intent.getStringExtra("name") ?: "Reproduciendo"
+        binding.tvTitle.text = name
+    }
 
-        user = intent.getStringExtra("user") ?: ""
-        pass = intent.getStringExtra("pass") ?: ""
+    private fun initPlayer() {
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setUserAgent("Mozilla/5.0 (Android) ExoPlayer FRPMovie")
 
-        adapter = ChannelAdapter(allItems) { item ->
-            val url = when (currentTab) {
-                "movies" -> Config.movieUrl(user, pass, item.streamId)
-                "series" -> Config.seriesUrl(user, pass, item.streamId)
-                else -> Config.liveUrl(user, pass, item.streamId)
+        val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
+
+        player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+        binding.playerView.player = player
+
+        player?.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                if (!usingVlc) {
+                    switchToVlc()
+                }
             }
-            val i = Intent(this, PlayerActivity::class.java)
-            i.putExtra("url", url)
-            i.putExtra("name", item.name)
-            i.putExtra("type", currentTab)
-            startActivity(i)
-        }
-
-        binding.recyclerChannels.layoutManager = GridLayoutManager(this, 3)
-        binding.recyclerChannels.adapter = adapter
-
-        // Menu lateral de categorias
-        catAdapter = CategoryAdapter(categories) { cat ->
-            currentCat = cat.id
-            binding.drawerLayout.closeDrawers()
-            applyFilter()
-        }
-        binding.recyclerCategories.layoutManager = LinearLayoutManager(this)
-        binding.recyclerCategories.adapter = catAdapter
-
-        binding.btnMenu.setOnClickListener {
-            binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START)
-        }
-
-        binding.etSearch.addTextChangedListener(object : android.text.TextWatcher {
-            override fun afterTextChanged(s: android.text.Editable?) { applyFilter() }
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         })
 
-        binding.btnLive.setOnClickListener { switchTab("live") }
-        binding.btnMovies.setOnClickListener { switchTab("movies") }
-        binding.btnSeries.setOnClickListener { switchTab("series") }
+        val mediaItem = if (type == "live") {
+            MediaItem.Builder()
+                .setUri(Uri.parse(url))
+                .setMimeType(MimeTypes.APPLICATION_M3U8)
+                .build()
+        } else {
+            MediaItem.fromUri(Uri.parse(url))
+        }
 
-        switchTab("live")
+        player?.setMediaItem(mediaItem)
+        player?.prepare()
+        player?.playWhenReady = true
     }
 
-    private fun switchTab(tab: String) {
-        currentTab = tab
-        currentCat = "all"
-        binding.etSearch.setText("")
-        val brand = androidx.core.content.ContextCompat.getColor(this, R.color.brand)
-        val transparent = android.graphics.Color.TRANSPARENT
-        binding.btnLive.setBackgroundColor(if (tab == "live") brand else transparent)
-        binding.btnMovies.setBackgroundColor(if (tab == "movies") brand else transparent)
-        binding.btnSeries.setBackgroundColor(if (tab == "series") brand else transparent)
-        loadContent()
+    private fun switchToVlc() {
+        usingVlc = true
+        player?.release()
+        player = null
+        binding.playerView.visibility = View.GONE
+        binding.vlcLayout.visibility = View.VISIBLE
+
+        Toast.makeText(this, "Cambiando a motor VLC...", Toast.LENGTH_SHORT).show()
+
+        try {
+            val options = arrayListOf(
+                "--network-caching=1500",
+                "--http-reconnect",
+                "--no-drop-late-frames",
+                "--no-skip-frames"
+            )
+            libVlc = LibVLC(this, options)
+            vlcPlayer = MediaPlayer(libVlc)
+            vlcPlayer?.attachViews(binding.vlcLayout, null, false, false)
+
+            val media = Media(libVlc, Uri.parse(url))
+            media.setHWDecoderEnabled(true, false)
+            vlcPlayer?.media = media
+            media.release()
+            vlcPlayer?.play()
+        } catch (e: Exception) {
+            Toast.makeText(this, "No se pudo reproducir: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
-    private fun applyFilter() {
-        val query = binding.etSearch.text.toString()
-        var filtered = if (currentCat == "all") allItems
-            else allItems.filter { it.category == currentCat }
-        if (query.isNotEmpty()) {
-            filtered = filtered.filter { it.name.contains(query, ignoreCase = true) }
-        }
-        adapter.update(filtered)
-        binding.tvCount.text = "${filtered.size} de ${allItems.size}"
+    override fun onStart() {
+        super.onStart()
+        if (!usingVlc) initPlayer()
     }
 
-    private fun loadContent() {
-        binding.progress.visibility = View.VISIBLE
-        binding.tvCount.text = "Cargando..."
-        val streamsUrl = when (currentTab) {
-            "movies" -> Config.vodStreams(user, pass)
-            "series" -> Config.seriesStreams(user, pass)
-            else -> Config.liveStreams(user, pass)
-        }
-        val catsUrl = when (currentTab) {
-            "movies" -> Config.vodCategories(user, pass)
-            "series" -> Config.seriesCategories(user, pass)
-            else -> Config.liveCategories(user, pass)
-        }
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                // Cargar streams
-                val req = Request.Builder().url(streamsUrl).build()
-                val body = client.newCall(req).execute().body?.string() ?: "[]"
-                val arr = JSONArray(body)
-                val list = mutableListOf<Channel>()
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-                    val id = if (currentTab == "series") o.optInt("series_id") else o.optInt("stream_id")
-                    val logo = if (currentTab == "live") o.optString("stream_icon") else o.optString("cover", o.optString("stream_icon"))
-                    list.add(
-                        Channel(
-                            streamId = id,
-                            name = o.optString("name"),
-                            logo = logo,
-                            category = o.optString("category_id")
-                        )
-                    )
-                }
-
-                // Cargar categorias
-                val reqCat = Request.Builder().url(catsUrl).build()
-                val bodyCat = client.newCall(reqCat).execute().body?.string() ?: "[]"
-                val arrCat = JSONArray(bodyCat)
-                val catList = mutableListOf<Category>()
-                catList.add(Category("all", "📋 Todas", list.size))
-                for (i in 0 until arrCat.length()) {
-                    val o = arrCat.getJSONObject(i)
-                    val catId = o.optString("category_id")
-                    val catName = o.optString("category_name")
-                    val count = list.count { it.category == catId }
-                    if (count > 0) {
-                        catList.add(Category(catId, catName, count))
-                    }
-                }
-
-                withContext(Dispatchers.Main) {
-                    allItems.clear()
-                    allItems.addAll(list)
-                    catAdapter.update(catList)
-                    catAdapter.setSelected("all")
-                    currentCat = "all"
-                    adapter.update(allItems)
-                    binding.progress.visibility = View.GONE
-                    val tipo = when (currentTab) {
-                        "movies" -> "películas"
-                        "series" -> "series"
-                        else -> "canales"
-                    }
-                    binding.tvCount.text = "${allItems.size} $tipo"
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    binding.progress.visibility = View.GONE
-                    binding.tvCount.text = "Error al cargar"
-                }
-            }
-        }
+    override fun onStop() {
+        super.onStop()
+        player?.release()
+        player = null
+        vlcPlayer?.stop()
+        vlcPlayer?.detachViews()
+        vlcPlayer?.release()
+        vlcPlayer = null
+        libVlc?.release()
+        libVlc = null
+        usingVlc = false
     }
 }
-
-data class Channel(
-    val streamId: Int,
-    val name: String,
-    val logo: String,
-    val category: String
-)
