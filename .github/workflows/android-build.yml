@@ -21,11 +21,19 @@ jobs:
       - name: Dar permisos a gradlew
         run: chmod +x ./gradlew
 
-      - name: Compilar APK debug
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Recuperar keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/frpmovie-release.keystore
 
-      - name: Subir APK
+      - name: Compilar APK release firmado
+        run: ./gradlew assembleRelease --no-daemon
+        env:
+          KEYSTORE_FILE: frpmovie-release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+
+      - name: Subir APK firmado
         uses: actions/upload-artifact@v4
         with:
           name: FRP-Movie-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/release/app-release.apk
