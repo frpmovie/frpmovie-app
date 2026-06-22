@@ -3,6 +3,7 @@ package com.frpmovie.app
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
@@ -30,6 +31,13 @@ class PlayerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // Mantener pantalla encendida (bandera de ventana)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Y directo en las vistas de video (doble garantía)
+        binding.playerView.keepScreenOn = true
+        binding.vlcLayout.keepScreenOn = true
+        binding.root.keepScreenOn = true
+
         url = intent.getStringExtra("url") ?: ""
         type = intent.getStringExtra("type") ?: "live"
         val name = intent.getStringExtra("name") ?: "Reproduciendo"
@@ -50,7 +58,6 @@ class PlayerActivity : AppCompatActivity() {
 
         player?.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                // Si ExoPlayer falla, cambiar a libVLC
                 if (!usingVlc) {
                     switchToVlc()
                 }
@@ -73,7 +80,6 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun switchToVlc() {
         usingVlc = true
-        // Liberar ExoPlayer
         player?.release()
         player = null
         binding.playerView.visibility = View.GONE
