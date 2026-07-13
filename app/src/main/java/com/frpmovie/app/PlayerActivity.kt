@@ -11,6 +11,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.frpmovie.app.databinding.ActivityPlayerBinding
@@ -31,9 +32,7 @@ class PlayerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        // Mantener pantalla encendida (bandera de ventana)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        // Y directo en las vistas de video (doble garantía)
         binding.playerView.keepScreenOn = true
         binding.vlcLayout.keepScreenOn = true
         binding.root.keepScreenOn = true
@@ -48,11 +47,25 @@ class PlayerActivity : AppCompatActivity() {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("Mozilla/5.0 (Android) ExoPlayer FRPMovie")
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(15000)
 
         val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
 
+        // Buffer generoso: aguanta cortes de internet sin trabarse
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                15000,  // min buffer antes de poder reproducir (15s)
+                50000,  // max buffer que junta (50s) - clave para conexiones inestables
+                2500,   // buffer minimo para EMPEZAR a reproducir (2.5s)
+                5000    // buffer minimo para REANUDAR tras un corte (5s)
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
         player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(loadControl)
             .build()
         binding.playerView.player = player
 
@@ -89,10 +102,11 @@ class PlayerActivity : AppCompatActivity() {
 
         try {
             val options = arrayListOf(
-                "--network-caching=1500",
+                "--network-caching=3000",  // buffer mas amplio para conexiones inestables
                 "--http-reconnect",
                 "--no-drop-late-frames",
-                "--no-skip-frames"
+                "--no-skip-frames",
+                "--file-caching=3000"
             )
             libVlc = LibVLC(this, options)
             vlcPlayer = MediaPlayer(libVlc)
