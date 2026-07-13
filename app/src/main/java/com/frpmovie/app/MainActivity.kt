@@ -64,6 +64,16 @@ class MainActivity : AppCompatActivity() {
             binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START)
         }
 
+        binding.btnSearchIcon.setOnClickListener {
+            if (binding.etSearch.visibility == View.VISIBLE) {
+                binding.etSearch.visibility = View.GONE
+                binding.etSearch.setText("")
+            } else {
+                binding.etSearch.visibility = View.VISIBLE
+                binding.etSearch.requestFocus()
+            }
+        }
+
         binding.etSearch.addTextChangedListener(object : android.text.TextWatcher {
             override fun afterTextChanged(s: android.text.Editable?) { applyFilter() }
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -81,6 +91,7 @@ class MainActivity : AppCompatActivity() {
         currentTab = tab
         currentCat = "all"
         binding.etSearch.setText("")
+        binding.etSearch.visibility = View.GONE
         val brand = androidx.core.content.ContextCompat.getColor(this, R.color.brand)
         val transparent = android.graphics.Color.TRANSPARENT
         binding.btnLive.setBackgroundColor(if (tab == "live") brand else transparent)
