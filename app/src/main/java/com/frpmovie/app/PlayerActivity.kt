@@ -2,9 +2,10 @@ package com.frpmovie.app
 
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -27,6 +28,7 @@ class PlayerActivity : AppCompatActivity() {
     private var url: String = ""
     private var type: String = "live"
     private var usingVlc = false
+    private val hideTitleHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +43,9 @@ class PlayerActivity : AppCompatActivity() {
         type = intent.getStringExtra("type") ?: "live"
         val name = intent.getStringExtra("name") ?: "Reproduciendo"
         binding.tvTitle.text = name
+
+        // Ocultar el titulo despues de 3 segundos
+        hideTitleHandler.postDelayed({ binding.tvTitle.visibility = View.GONE }, 3000)
     }
 
     private fun initPlayer() {
@@ -52,14 +57,8 @@ class PlayerActivity : AppCompatActivity() {
 
         val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
 
-        // Buffer generoso: aguanta cortes de internet sin trabarse
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                15000,  // min buffer antes de poder reproducir (15s)
-                50000,  // max buffer que junta (50s) - clave para conexiones inestables
-                2500,   // buffer minimo para EMPEZAR a reproducir (2.5s)
-                5000    // buffer minimo para REANUDAR tras un corte (5s)
-            )
+            .setBufferDurationsMs(15000, 50000, 2500, 5000)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -97,12 +96,11 @@ class PlayerActivity : AppCompatActivity() {
         player = null
         binding.playerView.visibility = View.GONE
         binding.vlcLayout.visibility = View.VISIBLE
-
-        Toast.makeText(this, "Cambiando a motor VLC...", Toast.LENGTH_SHORT).show()
+        // Cambio silencioso, sin aviso al usuario
 
         try {
             val options = arrayListOf(
-                "--network-caching=3000",  // buffer mas amplio para conexiones inestables
+                "--network-caching=3000",
                 "--http-reconnect",
                 "--no-drop-late-frames",
                 "--no-skip-frames",
@@ -118,7 +116,7 @@ class PlayerActivity : AppCompatActivity() {
             media.release()
             vlcPlayer?.play()
         } catch (e: Exception) {
-            Toast.makeText(this, "No se pudo reproducir: ${e.message}", Toast.LENGTH_LONG).show()
+            // Silencioso: si tampoco funciona con VLC, simplemente no reproduce
         }
     }
 
@@ -129,6 +127,7 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        hideTitleHandler.removeCallbacksAndMessages(null)
         player?.release()
         player = null
         vlcPlayer?.stop()
