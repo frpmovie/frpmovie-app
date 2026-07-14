@@ -44,7 +44,6 @@ class PlayerActivity : AppCompatActivity() {
         val name = intent.getStringExtra("name") ?: "Reproduciendo"
         binding.tvTitle.text = name
 
-        // Ocultar el titulo despues de 3 segundos
         hideTitleHandler.postDelayed({ binding.tvTitle.visibility = View.GONE }, 3000)
     }
 
@@ -58,7 +57,7 @@ class PlayerActivity : AppCompatActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
 
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15000, 50000, 2500, 5000)
+            .setBufferDurationsMs(10000, 25000, 1500, 3000)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -96,15 +95,14 @@ class PlayerActivity : AppCompatActivity() {
         player = null
         binding.playerView.visibility = View.GONE
         binding.vlcLayout.visibility = View.VISIBLE
-        // Cambio silencioso, sin aviso al usuario
 
         try {
             val options = arrayListOf(
-                "--network-caching=3000",
+                "--network-caching=2000",
                 "--http-reconnect",
                 "--no-drop-late-frames",
                 "--no-skip-frames",
-                "--file-caching=3000"
+                "--file-caching=2000"
             )
             libVlc = LibVLC(this, options)
             vlcPlayer = MediaPlayer(libVlc)
@@ -116,7 +114,7 @@ class PlayerActivity : AppCompatActivity() {
             media.release()
             vlcPlayer?.play()
         } catch (e: Exception) {
-            // Silencioso: si tampoco funciona con VLC, simplemente no reproduce
+            // Silencioso
         }
     }
 
