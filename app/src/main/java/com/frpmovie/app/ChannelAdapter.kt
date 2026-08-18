@@ -22,11 +22,16 @@ class ChannelAdapter(
     override fun onBindViewHolder(holder: VH, position: Int) {
         val ch = items[position]
         holder.binding.tvName.text = ch.name
+        holder.binding.ivLogo.visibility = View.VISIBLE
         if (ch.logo.startsWith("http")) {
-            holder.binding.ivLogo.visibility = View.VISIBLE
-            Glide.with(holder.itemView).load(ch.logo).into(holder.binding.ivLogo)
+            Glide.with(holder.itemView)
+                .load(ch.logo)
+                .placeholder(R.drawable.logo_placeholder)
+                .error(R.drawable.logo_placeholder)
+                .into(holder.binding.ivLogo)
         } else {
-            holder.binding.ivLogo.visibility = View.GONE
+            Glide.with(holder.itemView).clear(holder.binding.ivLogo)
+            holder.binding.ivLogo.setImageResource(R.drawable.logo_placeholder)
         }
         holder.itemView.setOnClickListener { onClick(ch) }
         // Para Android TV: resaltar al enfocar

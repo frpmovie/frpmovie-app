@@ -28,4 +28,83 @@
         android:shadowDx="1"
         android:shadowDy="1"
         android:shadowRadius="3" />
+
+    <LinearLayout
+        android:id="@+id/controlsRow"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_margin="12dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnAspect"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:text="⛶"
+            android:textSize="18sp"
+            android:textColor="@android:color/white"
+            android:background="@drawable/player_btn_bg"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnAudio"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:text="🔊"
+            android:textSize="16sp"
+            android:textColor="@android:color/white"
+            android:background="@drawable/player_btn_bg"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnSubtitles"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:text="CC"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/white"
+            android:background="@drawable/player_btn_bg"
+            android:minWidth="0dp"
+            android:padding="0dp" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/errorOverlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="24dp"
+        android:background="@drawable/card_bg"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvError"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="No se pudo reproducir este canal"
+            android:textColor="@color/ink"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:layout_marginBottom="16dp" />
+
+        <Button
+            android:id="@+id/btnRetry"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Reintentar"
+            android:textColor="@android:color/white"
+            android:background="@drawable/btn_bg"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp" />
+
+    </LinearLayout>
 </FrameLayout>

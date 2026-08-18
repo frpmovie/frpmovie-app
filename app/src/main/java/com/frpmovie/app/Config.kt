@@ -25,6 +25,9 @@ object Config {
         "$SERVER/player_api.php?username=$user&password=$pass&action=get_series"
     fun seriesCategories(user: String, pass: String) =
         "$SERVER/player_api.php?username=$user&password=$pass&action=get_series_categories"
+    // Detalle de una serie: temporadas y episodios
+    fun seriesInfo(user: String, pass: String, seriesId: Int) =
+        "$SERVER/player_api.php?username=$user&password=$pass&action=get_series_info&series_id=$seriesId"
 
     // URL de reproducción de un canal en vivo (directo, sin proxy web)
     fun liveUrl(user: String, pass: String, streamId: Int) =
@@ -34,7 +37,7 @@ object Config {
     fun movieUrl(user: String, pass: String, streamId: Int) =
         "$SERVER/movie/$user/$pass/$streamId.mp4"
 
-    // URL de reproducción de una serie (episodio)
-    fun seriesUrl(user: String, pass: String, streamId: Int) =
-        "$SERVER/series/$user/$pass/$streamId.mp4"
+    // URL de reproducción de un episodio de una serie
+    fun seriesUrl(user: String, pass: String, episodeId: Int, ext: String) =
+        "$SERVER/series/$user/$pass/$episodeId.${ext.ifBlank { "mp4" }}"
 }

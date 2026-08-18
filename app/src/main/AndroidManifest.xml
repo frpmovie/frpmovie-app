@@ -43,6 +43,12 @@
             android:exported="false"
             android:screenOrientation="unspecified" />
 
+        <!-- Detalle de serie: temporadas y episodios -->
+        <activity
+            android:name=".SeriesDetailActivity"
+            android:exported="false"
+            android:screenOrientation="unspecified" />
+
         <!-- Reproductor -->
         <activity
             android:name=".PlayerActivity"

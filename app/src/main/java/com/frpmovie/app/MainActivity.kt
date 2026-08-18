@@ -37,16 +37,25 @@ class MainActivity : AppCompatActivity() {
         pass = intent.getStringExtra("pass") ?: ""
 
         adapter = ChannelAdapter(allItems) { item ->
-            val url = when (currentTab) {
-                "movies" -> Config.movieUrl(user, pass, item.streamId)
-                "series" -> Config.seriesUrl(user, pass, item.streamId)
-                else -> Config.liveUrl(user, pass, item.streamId)
+            if (currentTab == "series") {
+                val i = Intent(this, SeriesDetailActivity::class.java)
+                i.putExtra("user", user)
+                i.putExtra("pass", pass)
+                i.putExtra("seriesId", item.streamId)
+                i.putExtra("name", item.name)
+                i.putExtra("cover", item.logo)
+                startActivity(i)
+            } else {
+                val url = when (currentTab) {
+                    "movies" -> Config.movieUrl(user, pass, item.streamId)
+                    else -> Config.liveUrl(user, pass, item.streamId)
+                }
+                val i = Intent(this, PlayerActivity::class.java)
+                i.putExtra("url", url)
+                i.putExtra("name", item.name)
+                i.putExtra("type", currentTab)
+                startActivity(i)
             }
-            val i = Intent(this, PlayerActivity::class.java)
-            i.putExtra("url", url)
-            i.putExtra("name", item.name)
-            i.putExtra("type", currentTab)
-            startActivity(i)
         }
 
         binding.recyclerChannels.layoutManager = GridLayoutManager(this, 3)
