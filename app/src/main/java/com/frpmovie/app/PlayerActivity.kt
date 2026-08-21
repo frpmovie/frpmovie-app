@@ -3,6 +3,8 @@ package com.frpmovie.app
 import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
@@ -40,6 +42,23 @@ class PlayerActivity : AppCompatActivity() {
     )
     private var resizeModeIndex = 0
 
+    private val autoHideHandler = Handler(Looper.getMainLooper())
+    private val hideOverlayRunnable = Runnable {
+        binding.tvTitle.visibility = View.GONE
+        binding.controlsRow.visibility = View.GONE
+        binding.playerView.hideController()
+    }
+
+    // Temporizador propio: el auto-ocultado nativo del controlador de ExoPlayer
+    // se reinicia con cada rebuffer (frecuente en IPTV inestable) y a veces
+    // nunca llega a ocultarse. Este no depende de eso.
+    private fun showOverlay() {
+        binding.tvTitle.visibility = View.VISIBLE
+        binding.controlsRow.visibility = View.VISIBLE
+        autoHideHandler.removeCallbacks(hideOverlayRunnable)
+        autoHideHandler.postDelayed(hideOverlayRunnable, 4000)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
@@ -56,15 +75,29 @@ class PlayerActivity : AppCompatActivity() {
 
         binding.playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
-                binding.tvTitle.visibility = visibility
-                binding.controlsRow.visibility = visibility
+                if (visibility == View.VISIBLE) showOverlay()
             }
         )
+        binding.vlcLayout.setOnClickListener { showOverlay() }
 
         binding.btnAspect.setOnClickListener { cycleAspectRatio() }
         binding.btnAudio.setOnClickListener { showTrackDialog(C.TRACK_TYPE_AUDIO) }
         binding.btnSubtitles.setOnClickListener { showTrackDialog(C.TRACK_TYPE_TEXT) }
         binding.btnRetry.setOnClickListener { restart() }
+
+        showOverlay()
+    }
+
+    private fun startPlayback() {
+        if (type == "live") {
+            // TV en vivo: ExoPlayer arranca más rápido y el audio (AAC/MP2) es compatible.
+            initPlayer()
+        } else {
+            // Películas/series suelen traer audio AC-3/E-AC-3, que ExoPlayer no
+            // decodifica sin la extensión FFmpeg (no incluida). VLC sí la soporta,
+            // así que para VOD se usa directo en vez de esperar a que ExoPlayer falle.
+            switchToVlc()
+        }
     }
 
     private fun initPlayer() {
@@ -176,8 +209,37 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun showTrackDialog(trackType: Int) {
+        if (usingVlc) {
+            showVlcTrackDialog(trackType)
+        } else {
+            showExoTrackDialog(trackType)
+        }
+    }
+
+    private fun showVlcTrackDialog(trackType: Int) {
+        val vp = vlcPlayer ?: return
+        val isAudio = trackType == C.TRACK_TYPE_AUDIO
+        val tracks = if (isAudio) vp.audioTracks else vp.spuTracks
+        if (tracks == null || tracks.isEmpty()) {
+            Toast.makeText(this, "No hay pistas disponibles", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val currentId = if (isAudio) vp.audioTrack else vp.spuTrack
+        val labels = tracks.map { it.name }.toTypedArray()
+        val selectedIndex = tracks.indexOfFirst { it.id == currentId }.let { if (it == -1) 0 else it }
+
+        AlertDialog.Builder(this)
+            .setTitle(if (isAudio) "Audio" else "Subtítulos")
+            .setSingleChoiceItems(labels, selectedIndex) { dialog, which ->
+                if (isAudio) vp.setAudioTrack(tracks[which].id) else vp.setSpuTrack(tracks[which].id)
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun showExoTrackDialog(trackType: Int) {
         val p = player
-        if (p == null || usingVlc) {
+        if (p == null) {
             Toast.makeText(this, "No disponible con este reproductor", Toast.LENGTH_SHORT).show()
             return
         }
@@ -233,28 +295,40 @@ class PlayerActivity : AppCompatActivity() {
         releasePlayers()
         binding.playerView.visibility = View.VISIBLE
         binding.vlcLayout.visibility = View.GONE
-        initPlayer()
+        startPlayback()
     }
 
     private fun releasePlayers() {
         player?.release()
         player = null
-        vlcPlayer?.stop()
-        vlcPlayer?.detachViews()
-        vlcPlayer?.release()
-        vlcPlayer = null
-        libVlc?.release()
-        libVlc = null
         usingVlc = false
+
+        // stop()/release() de VLC son llamadas nativas que pueden bloquear un
+        // momento (sobre todo si el stream estaba reconectando por red), lo que
+        // congelaba la app al salir de un canal. detachViews() sí debe ir en el
+        // hilo principal (toca Views); el resto se libera en segundo plano.
+        val vlcToRelease = vlcPlayer
+        val libVlcToRelease = libVlc
+        vlcPlayer = null
+        libVlc = null
+        if (vlcToRelease != null) {
+            vlcToRelease.detachViews()
+            Thread {
+                vlcToRelease.stop()
+                vlcToRelease.release()
+                libVlcToRelease?.release()
+            }.start()
+        }
     }
 
     override fun onStart() {
         super.onStart()
-        if (!usingVlc) initPlayer()
+        if (!usingVlc) startPlayback()
     }
 
     override fun onStop() {
         super.onStop()
+        autoHideHandler.removeCallbacksAndMessages(null)
         releasePlayers()
     }
 }
