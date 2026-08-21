@@ -15,6 +15,19 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_gravity="top"
+        android:background="@drawable/scrim_top" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="160dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/scrim_bottom" />
+
     <TextView
         android:id="@+id/tvTitle"
         android:layout_width="wrap_content"
@@ -72,6 +85,59 @@
             android:background="@drawable/player_btn_bg"
             android:minWidth="0dp"
             android:padding="0dp" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/vlcControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="16dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/btnPlayPause"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:text="⏸"
+            android:textSize="18sp"
+            android:textColor="@android:color/white"
+            android:background="@drawable/player_btn_bg"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:layout_marginEnd="12dp" />
+
+        <TextView
+            android:id="@+id/tvPosition"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="00:00"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:layout_marginEnd="8dp" />
+
+        <SeekBar
+            android:id="@+id/seekBar"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:progressTint="@color/brand"
+            android:thumbTint="@color/brand"
+            android:max="1000" />
+
+        <TextView
+            android:id="@+id/tvDuration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="00:00"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:layout_marginStart="8dp" />
 
     </LinearLayout>
 

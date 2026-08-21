@@ -102,10 +102,13 @@ class MainActivity : AppCompatActivity() {
         binding.etSearch.setText("")
         binding.etSearch.visibility = View.GONE
         val brand = androidx.core.content.ContextCompat.getColor(this, R.color.brand)
-        val transparent = android.graphics.Color.TRANSPARENT
-        binding.btnLive.setBackgroundColor(if (tab == "live") brand else transparent)
-        binding.btnMovies.setBackgroundColor(if (tab == "movies") brand else transparent)
-        binding.btnSeries.setBackgroundColor(if (tab == "series") brand else transparent)
+        val ink = androidx.core.content.ContextCompat.getColor(this, R.color.ink)
+        val muted = androidx.core.content.ContextCompat.getColor(this, R.color.muted)
+        for ((btn, id) in listOf(binding.btnLive to "live", binding.btnMovies to "movies", binding.btnSeries to "series")) {
+            val active = id == tab
+            btn.backgroundTintList = if (active) android.content.res.ColorStateList.valueOf(brand) else null
+            btn.setTextColor(if (active) ink else muted)
+        }
         loadContent()
     }
 

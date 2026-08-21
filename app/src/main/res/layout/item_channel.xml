@@ -6,6 +6,7 @@
     android:layout_margin="6dp"
     android:padding="10dp"
     android:background="@drawable/card_bg"
+    android:elevation="3dp"
     android:focusable="true"
     android:clickable="true">
 

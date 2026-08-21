@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.WindowManager
+import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.C
@@ -46,6 +47,7 @@ class PlayerActivity : AppCompatActivity() {
     private val hideOverlayRunnable = Runnable {
         binding.tvTitle.visibility = View.GONE
         binding.controlsRow.visibility = View.GONE
+        binding.vlcControls.visibility = View.GONE
         binding.playerView.hideController()
     }
 
@@ -55,8 +57,37 @@ class PlayerActivity : AppCompatActivity() {
     private fun showOverlay() {
         binding.tvTitle.visibility = View.VISIBLE
         binding.controlsRow.visibility = View.VISIBLE
+        binding.vlcControls.visibility = if (usingVlc) View.VISIBLE else View.GONE
         autoHideHandler.removeCallbacks(hideOverlayRunnable)
         autoHideHandler.postDelayed(hideOverlayRunnable, 4000)
+    }
+
+    // VLC no trae su propia barra de progreso como PlayerView; se actualiza a mano.
+    private val positionHandler = Handler(Looper.getMainLooper())
+    private val positionRunnable = object : Runnable {
+        override fun run() {
+            updateVlcProgress()
+            positionHandler.postDelayed(this, 500)
+        }
+    }
+
+    private fun updateVlcProgress() {
+        val vp = vlcPlayer ?: return
+        val length = vp.length
+        if (length > 0) {
+            binding.seekBar.progress = ((vp.time * 1000) / length).toInt()
+            binding.tvDuration.text = formatTime(length)
+        }
+        binding.tvPosition.text = formatTime(vp.time)
+        binding.btnPlayPause.text = if (vp.isPlaying) "⏸" else "▶"
+    }
+
+    private fun formatTime(ms: Long): String {
+        val totalSeconds = ms / 1000
+        val h = totalSeconds / 3600
+        val m = (totalSeconds % 3600) / 60
+        val s = totalSeconds % 60
+        return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,6 +115,27 @@ class PlayerActivity : AppCompatActivity() {
         binding.btnAudio.setOnClickListener { showTrackDialog(C.TRACK_TYPE_AUDIO) }
         binding.btnSubtitles.setOnClickListener { showTrackDialog(C.TRACK_TYPE_TEXT) }
         binding.btnRetry.setOnClickListener { restart() }
+
+        binding.btnPlayPause.setOnClickListener {
+            val vp = vlcPlayer ?: return@setOnClickListener
+            if (vp.isPlaying) vp.pause() else vp.play()
+            showOverlay()
+        }
+        binding.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {}
+            override fun onStartTrackingTouch(seekBar: SeekBar) {
+                positionHandler.removeCallbacks(positionRunnable)
+            }
+            override fun onStopTrackingTouch(seekBar: SeekBar) {
+                val vp = vlcPlayer
+                val length = vp?.length ?: 0
+                if (vp != null && length > 0) {
+                    vp.time = (length * seekBar.progress) / 1000
+                }
+                positionHandler.post(positionRunnable)
+                showOverlay()
+            }
+        })
 
         showOverlay()
     }
@@ -157,11 +209,11 @@ class PlayerActivity : AppCompatActivity() {
 
         try {
             val options = arrayListOf(
-                "--network-caching=2000",
+                "--network-caching=1200",
                 "--http-reconnect",
                 "--no-drop-late-frames",
                 "--no-skip-frames",
-                "--file-caching=2000"
+                "--file-caching=1200"
             )
             libVlc = LibVLC(this, options)
             vlcPlayer = MediaPlayer(libVlc)
@@ -179,6 +231,9 @@ class PlayerActivity : AppCompatActivity() {
             vlcPlayer?.media = media
             media.release()
             vlcPlayer?.play()
+            binding.vlcControls.visibility = View.VISIBLE
+            positionHandler.removeCallbacks(positionRunnable)
+            positionHandler.post(positionRunnable)
         } catch (e: Exception) {
             showError()
         }
@@ -299,6 +354,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun releasePlayers() {
+        positionHandler.removeCallbacks(positionRunnable)
         player?.release()
         player = null
         usingVlc = false
