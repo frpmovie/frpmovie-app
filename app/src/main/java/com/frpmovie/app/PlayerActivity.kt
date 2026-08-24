@@ -5,8 +5,12 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
+import android.view.GestureDetector
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.SeekBar
 import android.widget.Toast
@@ -27,6 +31,7 @@ import com.frpmovie.app.databinding.ActivityPlayerBinding
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
+import kotlin.math.abs
 
 class PlayerActivity : AppCompatActivity() {
     private lateinit var binding: ActivityPlayerBinding
@@ -44,13 +49,24 @@ class PlayerActivity : AppCompatActivity() {
     )
     private var resizeModeIndex = 0
 
+    // 100 = volumen normal. VLC soporta amplificar por software hasta 200
+    // (igual que el propio VLC de escritorio); ExoPlayer no, así que en vivo
+    // se limita a 100.
+    private var volumePercent = 100
+
     private val autoHideHandler = Handler(Looper.getMainLooper())
-    private val hideOverlayRunnable = Runnable {
+
+    private fun hideOverlayNow() {
         binding.tvTitle.visibility = View.GONE
         binding.controlsRow.visibility = View.GONE
         binding.vlcControls.visibility = View.GONE
+        binding.scrimTop.visibility = View.GONE
+        binding.scrimBottom.visibility = View.GONE
         binding.playerView.hideController()
+        autoHideHandler.removeCallbacks(hideOverlayRunnable)
     }
+
+    private val hideOverlayRunnable = Runnable { hideOverlayNow() }
 
     // Temporizador propio: el auto-ocultado nativo del controlador de ExoPlayer
     // se reinicia con cada rebuffer (frecuente en IPTV inestable) y a veces
@@ -60,6 +76,9 @@ class PlayerActivity : AppCompatActivity() {
         binding.tvTitle.visibility = View.VISIBLE
         binding.controlsRow.visibility = View.VISIBLE
         binding.vlcControls.visibility = if (usingVlc) View.VISIBLE else View.GONE
+        binding.scrimTop.visibility = View.VISIBLE
+        binding.scrimBottom.visibility = View.VISIBLE
+        binding.playerView.showController()
         autoHideHandler.removeCallbacks(hideOverlayRunnable)
         autoHideHandler.postDelayed(hideOverlayRunnable, 4000)
         // En TV/control remoto, el primer control visible debe tener el foco de
@@ -67,6 +86,10 @@ class PlayerActivity : AppCompatActivity() {
         if (wasHidden && usingVlc) {
             binding.btnPlayPause.requestFocus()
         }
+    }
+
+    private fun toggleOverlay() {
+        if (binding.tvTitle.visibility == View.VISIBLE) hideOverlayNow() else showOverlay()
     }
 
     // Con control remoto (Android TV / Fire TV) no hay toques: el primer paso
@@ -92,6 +115,97 @@ class PlayerActivity : AppCompatActivity() {
         view.setOnFocusChangeListener { v, hasFocus ->
             v.scaleX = if (hasFocus) 1.12f else 1f
             v.scaleY = if (hasFocus) 1.12f else 1f
+        }
+    }
+
+    // --- Gestos estilo Netflix: toque = mostrar/ocultar controles,
+    // arrastrar en la mitad izquierda = brillo, mitad derecha = volumen. ---
+    private lateinit var gestureDetector: GestureDetector
+    private val touchSlop by lazy { ViewConfiguration.get(this).scaledTouchSlop }
+    private var dragStartX = 0f
+    private var dragStartY = 0f
+    private var adjustingBrightness = false
+    private var adjustingVolume = false
+    private var dragStartBrightness = 0f
+    private var dragStartVolume = 100
+
+    private val gestureIndicatorHideRunnable = Runnable { binding.gestureIndicator.visibility = View.GONE }
+
+    private fun showGestureIndicator(icon: String, value: String) {
+        binding.tvGestureIcon.text = icon
+        binding.tvGestureValue.text = value
+        binding.gestureIndicator.visibility = View.VISIBLE
+        autoHideHandler.removeCallbacks(gestureIndicatorHideRunnable)
+        autoHideHandler.postDelayed(gestureIndicatorHideRunnable, 700)
+    }
+
+    private fun maxVolumePercent() = if (usingVlc) 200 else 100
+
+    private fun applyVolume() {
+        if (usingVlc) {
+            vlcPlayer?.setVolume(volumePercent)
+        } else {
+            player?.volume = (volumePercent / 100f).coerceIn(0f, 1f)
+        }
+    }
+
+    private fun setVolumePercent(v: Int) {
+        volumePercent = v.coerceIn(0, maxVolumePercent())
+        applyVolume()
+        showGestureIndicator(if (volumePercent == 0) "🔇" else "🔊", "$volumePercent%")
+    }
+
+    private fun currentBrightness(): Float {
+        val attrBrightness = window.attributes.screenBrightness
+        if (attrBrightness in 0f..1f) return attrBrightness
+        return try {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+        } catch (e: Exception) {
+            0.5f
+        }
+    }
+
+    private fun setBrightness(v: Float) {
+        val clamped = v.coerceIn(0.02f, 1f)
+        val lp = window.attributes
+        lp.screenBrightness = clamped
+        window.attributes = lp
+        showGestureIndicator("🔆", "${(clamped * 100).toInt()}%")
+    }
+
+    private fun handleGestureTouch(view: View, event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                dragStartX = event.x
+                dragStartY = event.y
+                adjustingBrightness = false
+                adjustingVolume = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dy = dragStartY - event.y
+                val dx = event.x - dragStartX
+                if (!adjustingBrightness && !adjustingVolume && abs(dy) > touchSlop && abs(dy) > abs(dx)) {
+                    if (dragStartX < view.width / 2f) {
+                        adjustingBrightness = true
+                        dragStartBrightness = currentBrightness()
+                    } else {
+                        adjustingVolume = true
+                        dragStartVolume = volumePercent
+                    }
+                    dragStartY = event.y
+                }
+                if (adjustingBrightness) {
+                    val delta = (dragStartY - event.y) / view.height
+                    setBrightness(dragStartBrightness + delta)
+                } else if (adjustingVolume) {
+                    val delta = ((dragStartY - event.y) / view.height) * 200
+                    setVolumePercent((dragStartVolume + delta).toInt())
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                adjustingBrightness = false
+                adjustingVolume = false
+            }
         }
     }
 
@@ -137,12 +251,20 @@ class PlayerActivity : AppCompatActivity() {
         val name = intent.getStringExtra("name") ?: "Reproduciendo"
         binding.tvTitle.text = name
 
-        binding.playerView.setControllerVisibilityListener(
-            PlayerView.ControllerVisibilityListener { visibility ->
-                if (visibility == View.VISIBLE) showOverlay()
+        // El propio PlayerView ya no recibe toques directos (los intercepta
+        // gestureLayer para poder distinguir toque de arrastre), así que el
+        // mostrar/ocultar se maneja todo desde acá.
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                toggleOverlay()
+                return true
             }
-        )
-        binding.vlcLayout.setOnClickListener { showOverlay() }
+        })
+        binding.gestureLayer.setOnTouchListener { v, event ->
+            handleGestureTouch(v, event)
+            gestureDetector.onTouchEvent(event)
+            true
+        }
 
         binding.btnAspect.setOnClickListener { cycleAspectRatio() }
         binding.btnAudio.setOnClickListener { showTrackDialog(C.TRACK_TYPE_AUDIO) }
@@ -212,6 +334,7 @@ class PlayerActivity : AppCompatActivity() {
             .build()
         binding.playerView.player = player
         binding.playerView.resizeMode = resizeModes[resizeModeIndex]
+        applyVolume()
 
         player?.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
@@ -259,6 +382,7 @@ class PlayerActivity : AppCompatActivity() {
             vlcPlayer = MediaPlayer(libVlc)
             vlcPlayer?.attachViews(binding.vlcLayout, null, false, false)
             applyVlcScale()
+            applyVolume()
 
             vlcPlayer?.setEventListener { event ->
                 if (event.type == MediaPlayer.Event.EncounteredError) {
