@@ -52,39 +52,45 @@
 
         <Button
             android:id="@+id/btnAspect"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:text="⛶"
+            android:textSize="20sp"
+            android:textColor="@android:color/white"
+            android:background="@drawable/player_btn_bg"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="0dp"
+            android:focusable="true"
+            android:layout_marginEnd="10dp" />
+
+        <Button
+            android:id="@+id/btnAudio"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:text="🔊"
             android:textSize="18sp"
             android:textColor="@android:color/white"
             android:background="@drawable/player_btn_bg"
             android:minWidth="0dp"
+            android:minHeight="0dp"
             android:padding="0dp"
-            android:layout_marginEnd="8dp" />
-
-        <Button
-            android:id="@+id/btnAudio"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:text="🔊"
-            android:textSize="16sp"
-            android:textColor="@android:color/white"
-            android:background="@drawable/player_btn_bg"
-            android:minWidth="0dp"
-            android:padding="0dp"
-            android:layout_marginEnd="8dp" />
+            android:focusable="true"
+            android:layout_marginEnd="10dp" />
 
         <Button
             android:id="@+id/btnSubtitles"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:text="CC"
-            android:textSize="13sp"
+            android:textSize="14sp"
             android:textStyle="bold"
             android:textColor="@android:color/white"
             android:background="@drawable/player_btn_bg"
             android:minWidth="0dp"
-            android:padding="0dp" />
+            android:minHeight="0dp"
+            android:padding="0dp"
+            android:focusable="true" />
 
     </LinearLayout>
 
@@ -102,14 +108,16 @@
 
         <Button
             android:id="@+id/btnPlayPause"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:text="⏸"
-            android:textSize="18sp"
+            android:textSize="20sp"
             android:textColor="@android:color/white"
             android:background="@drawable/player_btn_bg"
             android:minWidth="0dp"
+            android:minHeight="0dp"
             android:padding="0dp"
+            android:focusable="true"
             android:layout_marginEnd="12dp" />
 
         <TextView
@@ -118,7 +126,7 @@
             android:layout_height="wrap_content"
             android:text="00:00"
             android:textColor="@android:color/white"
-            android:textSize="12sp"
+            android:textSize="14sp"
             android:layout_marginEnd="8dp" />
 
         <SeekBar
@@ -126,6 +134,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:focusable="true"
             android:progressTint="@color/brand"
             android:thumbTint="@color/brand"
             android:max="1000" />
@@ -136,7 +145,7 @@
             android:layout_height="wrap_content"
             android:text="00:00"
             android:textColor="@android:color/white"
-            android:textSize="12sp"
+            android:textSize="14sp"
             android:layout_marginStart="8dp" />
 
     </LinearLayout>
@@ -169,8 +178,11 @@
             android:text="Reintentar"
             android:textColor="@android:color/white"
             android:background="@drawable/btn_bg"
-            android:paddingStart="24dp"
-            android:paddingEnd="24dp" />
+            android:focusable="true"
+            android:paddingStart="28dp"
+            android:paddingEnd="28dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp" />
 
     </LinearLayout>
 </FrameLayout>

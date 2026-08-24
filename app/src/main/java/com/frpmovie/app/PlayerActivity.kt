@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.SeekBar
@@ -55,11 +56,43 @@ class PlayerActivity : AppCompatActivity() {
     // se reinicia con cada rebuffer (frecuente en IPTV inestable) y a veces
     // nunca llega a ocultarse. Este no depende de eso.
     private fun showOverlay() {
+        val wasHidden = binding.tvTitle.visibility != View.VISIBLE
         binding.tvTitle.visibility = View.VISIBLE
         binding.controlsRow.visibility = View.VISIBLE
         binding.vlcControls.visibility = if (usingVlc) View.VISIBLE else View.GONE
         autoHideHandler.removeCallbacks(hideOverlayRunnable)
         autoHideHandler.postDelayed(hideOverlayRunnable, 4000)
+        // En TV/control remoto, el primer control visible debe tener el foco de
+        // una vez; si no, el usuario necesita adivinar hacia dónde mover el d-pad.
+        if (wasHidden && usingVlc) {
+            binding.btnPlayPause.requestFocus()
+        }
+    }
+
+    // Con control remoto (Android TV / Fire TV) no hay toques: el primer paso
+    // de cualquier tecla de dirección debe revelar los controles en vez de
+    // perderse en botones invisibles.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && binding.tvTitle.visibility != View.VISIBLE) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_MENU -> {
+                    showOverlay()
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    // Pequeño zoom al enfocar con d-pad, igual que en las grillas de canales/episodios.
+    private fun applyTvFocusEffect(view: View) {
+        view.setOnFocusChangeListener { v, hasFocus ->
+            v.scaleX = if (hasFocus) 1.12f else 1f
+            v.scaleY = if (hasFocus) 1.12f else 1f
+        }
     }
 
     // VLC no trae su propia barra de progreso como PlayerView; se actualiza a mano.
@@ -115,6 +148,9 @@ class PlayerActivity : AppCompatActivity() {
         binding.btnAudio.setOnClickListener { showTrackDialog(C.TRACK_TYPE_AUDIO) }
         binding.btnSubtitles.setOnClickListener { showTrackDialog(C.TRACK_TYPE_TEXT) }
         binding.btnRetry.setOnClickListener { restart() }
+        for (btn in listOf(binding.btnAspect, binding.btnAudio, binding.btnSubtitles, binding.btnPlayPause, binding.btnRetry)) {
+            applyTvFocusEffect(btn)
+        }
 
         binding.btnPlayPause.setOnClickListener {
             val vp = vlcPlayer ?: return@setOnClickListener
@@ -122,18 +158,22 @@ class PlayerActivity : AppCompatActivity() {
             showOverlay()
         }
         binding.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {}
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                // fromUser cubre tanto arrastrar con el dedo como mover con las
+                // flechas del control remoto (que no dispara start/stopTrackingTouch).
+                if (!fromUser) return
+                val vp = vlcPlayer
+                val length = vp?.length ?: 0
+                if (vp != null && length > 0) {
+                    vp.time = (length * progress) / 1000
+                }
+                showOverlay()
+            }
             override fun onStartTrackingTouch(seekBar: SeekBar) {
                 positionHandler.removeCallbacks(positionRunnable)
             }
             override fun onStopTrackingTouch(seekBar: SeekBar) {
-                val vp = vlcPlayer
-                val length = vp?.length ?: 0
-                if (vp != null && length > 0) {
-                    vp.time = (length * seekBar.progress) / 1000
-                }
                 positionHandler.post(positionRunnable)
-                showOverlay()
             }
         })
 
