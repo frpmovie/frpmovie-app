@@ -28,7 +28,6 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.frpmovie.app.databinding.ActivityPlayerBinding
-import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import kotlin.math.abs
@@ -36,7 +35,6 @@ import kotlin.math.abs
 class PlayerActivity : AppCompatActivity() {
     private lateinit var binding: ActivityPlayerBinding
     private var player: ExoPlayer? = null
-    private var libVlc: LibVLC? = null
     private var vlcPlayer: MediaPlayer? = null
     private var url: String = ""
     private var type: String = "live"
@@ -371,15 +369,8 @@ class PlayerActivity : AppCompatActivity() {
         binding.vlcLayout.visibility = View.VISIBLE
 
         try {
-            val options = arrayListOf(
-                "--network-caching=1200",
-                "--http-reconnect",
-                "--no-drop-late-frames",
-                "--no-skip-frames",
-                "--file-caching=1200"
-            )
-            libVlc = LibVLC(this, options)
-            vlcPlayer = MediaPlayer(libVlc)
+            val engine = VlcEngine.get(this)
+            vlcPlayer = MediaPlayer(engine)
             vlcPlayer?.attachViews(binding.vlcLayout, null, false, false)
             applyVlcScale()
             applyVolume()
@@ -390,7 +381,7 @@ class PlayerActivity : AppCompatActivity() {
                 }
             }
 
-            val media = Media(libVlc, Uri.parse(url))
+            val media = Media(engine, Uri.parse(url))
             media.setHWDecoderEnabled(true, false)
             vlcPlayer?.media = media
             media.release()
@@ -523,20 +514,19 @@ class PlayerActivity : AppCompatActivity() {
         player = null
         usingVlc = false
 
-        // stop()/release() de VLC son llamadas nativas que pueden bloquear un
-        // momento (sobre todo si el stream estaba reconectando por red), lo que
-        // congelaba la app al salir de un canal. detachViews() sí debe ir en el
-        // hilo principal (toca Views); el resto se libera en segundo plano.
+        // stop()/release() del MediaPlayer son llamadas nativas que pueden
+        // bloquear un momento (sobre todo si el stream estaba reconectando por
+        // red), lo que congelaba la app al salir de un canal. detachViews() sí
+        // debe ir en el hilo principal (toca Views); el resto se libera en
+        // segundo plano. El motor LibVLC (VlcEngine) NO se libera acá: es
+        // compartido para toda la app y se reutiliza en la siguiente reproducción.
         val vlcToRelease = vlcPlayer
-        val libVlcToRelease = libVlc
         vlcPlayer = null
-        libVlc = null
         if (vlcToRelease != null) {
             vlcToRelease.detachViews()
             Thread {
                 vlcToRelease.stop()
                 vlcToRelease.release()
-                libVlcToRelease?.release()
             }.start()
         }
     }

@@ -36,6 +36,11 @@ class MainActivity : AppCompatActivity() {
         user = intent.getStringExtra("user") ?: ""
         pass = intent.getStringExtra("pass") ?: ""
 
+        // Arrancar el motor de VLC (lo más lento de abrir una película/serie)
+        // en segundo plano desde ya, mientras el usuario navega el catálogo,
+        // para que ya esté listo cuando toque reproducir algo.
+        Thread { VlcEngine.get(applicationContext) }.start()
+
         adapter = ChannelAdapter(allItems) { item ->
             if (currentTab == "series") {
                 val i = Intent(this, SeriesDetailActivity::class.java)
