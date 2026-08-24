@@ -301,15 +301,13 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun startPlayback() {
-        if (type == "live") {
-            // TV en vivo: ExoPlayer arranca más rápido y el audio (AAC/MP2) es compatible.
-            initPlayer()
-        } else {
-            // Películas/series suelen traer audio AC-3/E-AC-3, que ExoPlayer no
-            // decodifica sin la extensión FFmpeg (no incluida). VLC sí la soporta,
-            // así que para VOD se usa directo en vez de esperar a que ExoPlayer falle.
-            switchToVlc()
-        }
+        // Siempre se intenta primero con ExoPlayer: arranca mucho más rápido
+        // que VLC y la gran mayoría del contenido (audio AAC/MP3) funciona
+        // perfecto. Si el audio del archivo no tiene decodificador disponible
+        // en el dispositivo (común en VOD con AC-3/E-AC-3, que ExoPlayer no
+        // soporta sin la extensión FFmpeg) o si truena un error, se cae a VLC
+        // automáticamente — ver onTracksChanged/onPlayerError en initPlayer().
+        initPlayer()
     }
 
     private fun initPlayer() {
@@ -340,6 +338,18 @@ class PlayerActivity : AppCompatActivity() {
                     switchToVlc()
                 } else {
                     showError()
+                }
+            }
+
+            // A veces ExoPlayer no truena un error: si el dispositivo no tiene
+            // decodificador para el audio del archivo (típico con AC-3/E-AC-3),
+            // sigue reproduciendo el video mudo en vez de fallar. Se detecta acá
+            // apenas se conocen las pistas y se pasa a VLC antes de que se note.
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                if (usingVlc) return
+                val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                if (audioGroups.isNotEmpty() && audioGroups.none { it.isSupported }) {
+                    switchToVlc()
                 }
             }
         })
