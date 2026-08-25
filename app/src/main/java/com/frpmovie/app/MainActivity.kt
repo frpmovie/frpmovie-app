@@ -24,6 +24,7 @@ class MainActivity : AppCompatActivity() {
     private val allItems = mutableListOf<Channel>()
     private lateinit var adapter: ChannelAdapter
     private lateinit var catAdapter: CategoryAdapter
+    private lateinit var gridLayoutManager: GridLayoutManager
     private val categories = mutableListOf<Category>()
     private var currentTab = "live"
     private var currentCat = "all"
@@ -63,7 +64,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        binding.recyclerChannels.layoutManager = GridLayoutManager(this, 3)
+        gridLayoutManager = GridLayoutManager(this, 3)
+        binding.recyclerChannels.layoutManager = gridLayoutManager
         binding.recyclerChannels.adapter = adapter
 
         catAdapter = CategoryAdapter(categories) { cat ->
@@ -114,6 +116,11 @@ class MainActivity : AppCompatActivity() {
             btn.backgroundTintList = if (active) android.content.res.ColorStateList.valueOf(brand) else null
             btn.setTextColor(if (active) ink else muted)
         }
+        // Los logos de canales son chicos y caben bien en 3 columnas; las
+        // carátulas de películas/series se ven mejor más grandes, con menos
+        // columnas.
+        adapter.setContentType(tab)
+        gridLayoutManager.spanCount = if (tab == "live") 3 else 2
         loadContent()
     }
 

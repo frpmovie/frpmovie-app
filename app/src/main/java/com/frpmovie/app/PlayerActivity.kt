@@ -39,6 +39,9 @@ class PlayerActivity : AppCompatActivity() {
     private var url: String = ""
     private var type: String = "live"
     private var usingVlc = false
+    // Solo se permite un salto de motor (VLC -> Exo o Exo -> VLC) por
+    // reproducción; si el respaldo también falla, se muestra el error.
+    private var fallbackAttempted = false
 
     private val resizeModes = listOf(
         AspectRatioFrameLayout.RESIZE_MODE_FIT,
@@ -57,31 +60,30 @@ class PlayerActivity : AppCompatActivity() {
     private fun hideOverlayNow() {
         binding.tvTitle.visibility = View.GONE
         binding.controlsRow.visibility = View.GONE
-        binding.vlcControls.visibility = View.GONE
+        binding.playbackControls.visibility = View.GONE
         binding.scrimTop.visibility = View.GONE
         binding.scrimBottom.visibility = View.GONE
-        binding.playerView.hideController()
         autoHideHandler.removeCallbacks(hideOverlayRunnable)
     }
 
     private val hideOverlayRunnable = Runnable { hideOverlayNow() }
 
-    // Temporizador propio: el auto-ocultado nativo del controlador de ExoPlayer
-    // se reinicia con cada rebuffer (frecuente en IPTV inestable) y a veces
-    // nunca llega a ocultarse. Este no depende de eso.
+    // Temporizador propio en vez del auto-ocultado nativo de PlayerView (que se
+    // reinicia con cada rebuffer, frecuente en IPTV inestable, y a veces nunca
+    // llega a ocultarse). Se usa la misma barra sin importar qué motor esté
+    // reproduciendo, para que el cambio VLC/ExoPlayer no se note visualmente.
     private fun showOverlay() {
         val wasHidden = binding.tvTitle.visibility != View.VISIBLE
         binding.tvTitle.visibility = View.VISIBLE
         binding.controlsRow.visibility = View.VISIBLE
-        binding.vlcControls.visibility = if (usingVlc) View.VISIBLE else View.GONE
+        binding.playbackControls.visibility = if (type != "live") View.VISIBLE else View.GONE
         binding.scrimTop.visibility = View.VISIBLE
         binding.scrimBottom.visibility = View.VISIBLE
-        binding.playerView.showController()
         autoHideHandler.removeCallbacks(hideOverlayRunnable)
         autoHideHandler.postDelayed(hideOverlayRunnable, 4000)
         // En TV/control remoto, el primer control visible debe tener el foco de
         // una vez; si no, el usuario necesita adivinar hacia dónde mover el d-pad.
-        if (wasHidden && usingVlc) {
+        if (wasHidden && type != "live") {
             binding.btnPlayPause.requestFocus()
         }
     }
@@ -207,24 +209,37 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    // VLC no trae su propia barra de progreso como PlayerView; se actualiza a mano.
+    // Ni VLC ni PlayerView (con el controlador nativo desactivado) traen barra
+    // de progreso propia; se actualiza a mano para los dos motores por igual.
     private val positionHandler = Handler(Looper.getMainLooper())
     private val positionRunnable = object : Runnable {
         override fun run() {
-            updateVlcProgress()
+            updatePlaybackProgress()
             positionHandler.postDelayed(this, 500)
         }
     }
 
-    private fun updateVlcProgress() {
-        val vp = vlcPlayer ?: return
-        val length = vp.length
-        if (length > 0) {
-            binding.seekBar.progress = ((vp.time * 1000) / length).toInt()
-            binding.tvDuration.text = formatTime(length)
+    private fun updatePlaybackProgress() {
+        val posMs: Long
+        val durMs: Long
+        val playing: Boolean
+        if (usingVlc) {
+            val vp = vlcPlayer ?: return
+            posMs = vp.time
+            durMs = vp.length
+            playing = vp.isPlaying
+        } else {
+            val p = player ?: return
+            posMs = p.currentPosition
+            durMs = p.duration
+            playing = p.isPlaying
         }
-        binding.tvPosition.text = formatTime(vp.time)
-        binding.btnPlayPause.text = if (vp.isPlaying) "⏸" else "▶"
+        if (durMs > 0) {
+            binding.seekBar.progress = ((posMs * 1000) / durMs).toInt()
+            binding.tvDuration.text = formatTime(durMs)
+        }
+        binding.tvPosition.text = formatTime(posMs)
+        binding.btnPlayPause.text = if (playing) "⏸" else "▶"
     }
 
     private fun formatTime(ms: Long): String {
@@ -273,8 +288,13 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         binding.btnPlayPause.setOnClickListener {
-            val vp = vlcPlayer ?: return@setOnClickListener
-            if (vp.isPlaying) vp.pause() else vp.play()
+            if (usingVlc) {
+                val vp = vlcPlayer ?: return@setOnClickListener
+                if (vp.isPlaying) vp.pause() else vp.play()
+            } else {
+                val p = player ?: return@setOnClickListener
+                if (p.isPlaying) p.pause() else p.play()
+            }
             showOverlay()
         }
         binding.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -282,10 +302,14 @@ class PlayerActivity : AppCompatActivity() {
                 // fromUser cubre tanto arrastrar con el dedo como mover con las
                 // flechas del control remoto (que no dispara start/stopTrackingTouch).
                 if (!fromUser) return
-                val vp = vlcPlayer
-                val length = vp?.length ?: 0
-                if (vp != null && length > 0) {
-                    vp.time = (length * progress) / 1000
+                if (usingVlc) {
+                    val vp = vlcPlayer
+                    val length = vp?.length ?: 0
+                    if (vp != null && length > 0) vp.time = (length * progress) / 1000
+                } else {
+                    val p = player
+                    val duration = p?.duration ?: 0
+                    if (p != null && duration > 0) p.seekTo((duration * progress) / 1000)
                 }
                 showOverlay()
             }
@@ -301,16 +325,29 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun startPlayback() {
-        // Siempre se intenta primero con ExoPlayer: arranca mucho más rápido
-        // que VLC y la gran mayoría del contenido (audio AAC/MP3) funciona
-        // perfecto. Si el audio del archivo no tiene decodificador disponible
-        // en el dispositivo (común en VOD con AC-3/E-AC-3, que ExoPlayer no
-        // soporta sin la extensión FFmpeg) o si truena un error, se cae a VLC
-        // automáticamente — ver onTracksChanged/onPlayerError en initPlayer().
-        initPlayer()
+        // VLC reproduce prácticamente cualquier formato/códec (incluye
+        // AC-3/E-AC-3 y streams MPEG-TS "sucios" que ExoPlayer a veces
+        // rechaza), así que es el motor principal para todo — canales,
+        // películas y series. El motor de VLC se reutiliza entre
+        // reproducciones (VlcEngine) así que arranca rápido. ExoPlayer queda
+        // solo como respaldo silencioso si VLC truena un error.
+        fallbackAttempted = false
+        switchToVlc()
     }
 
     private fun initPlayer() {
+        // Se llama solo como respaldo si VLC falló: hay que dejar todo en el
+        // estado correcto para ExoPlayer (apagar VLC, mostrar su superficie).
+        usingVlc = false
+        val vp = vlcPlayer
+        vlcPlayer = null
+        if (vp != null) {
+            vp.detachViews()
+            Thread { vp.stop(); vp.release() }.start()
+        }
+        binding.vlcLayout.visibility = View.GONE
+        binding.playerView.visibility = View.VISIBLE
+
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("Mozilla/5.0 (Android) ExoPlayer FRPMovie")
@@ -334,22 +371,15 @@ class PlayerActivity : AppCompatActivity() {
 
         player?.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                if (!usingVlc) {
-                    switchToVlc()
-                } else {
-                    showError()
-                }
+                failOrFallback()
             }
 
-            // A veces ExoPlayer no truena un error: si el dispositivo no tiene
-            // decodificador para el audio del archivo (típico con AC-3/E-AC-3),
-            // sigue reproduciendo el video mudo en vez de fallar. Se detecta acá
-            // apenas se conocen las pistas y se pasa a VLC antes de que se note.
+            // Por si acaso: si tampoco ExoPlayer tiene decodificador para el
+            // audio (poco probable ya que solo entra como respaldo de VLC).
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                if (usingVlc) return
                 val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 if (audioGroups.isNotEmpty() && audioGroups.none { it.isSupported }) {
-                    switchToVlc()
+                    failOrFallback()
                 }
             }
         })
@@ -387,7 +417,7 @@ class PlayerActivity : AppCompatActivity() {
 
             vlcPlayer?.setEventListener { event ->
                 if (event.type == MediaPlayer.Event.EncounteredError) {
-                    runOnUiThread { showError() }
+                    runOnUiThread { failOrFallback() }
                 }
             }
 
@@ -396,12 +426,24 @@ class PlayerActivity : AppCompatActivity() {
             vlcPlayer?.media = media
             media.release()
             vlcPlayer?.play()
-            binding.vlcControls.visibility = View.VISIBLE
+            if (type != "live") binding.playbackControls.visibility = View.VISIBLE
             positionHandler.removeCallbacks(positionRunnable)
             positionHandler.post(positionRunnable)
         } catch (e: Exception) {
-            showError()
+            failOrFallback()
         }
+    }
+
+    // Un solo salto de motor por reproducción: si VLC falla se intenta
+    // ExoPlayer (o viceversa si el que falla es el respaldo); si el segundo
+    // motor también falla, recién ahí se muestra el error.
+    private fun failOrFallback() {
+        if (fallbackAttempted) {
+            showError()
+            return
+        }
+        fallbackAttempted = true
+        if (usingVlc) initPlayer() else switchToVlc()
     }
 
     private fun cycleAspectRatio() {
@@ -513,8 +555,6 @@ class PlayerActivity : AppCompatActivity() {
     private fun restart() {
         binding.errorOverlay.visibility = View.GONE
         releasePlayers()
-        binding.playerView.visibility = View.VISIBLE
-        binding.vlcLayout.visibility = View.GONE
         startPlayback()
     }
 

@@ -8,7 +8,7 @@
         android:id="@+id/playerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        app:use_controller="true"
+        app:use_controller="false"
         app:show_buffering="when_playing" />
     <org.videolan.libvlc.util.VLCVideoLayout
         android:id="@+id/vlcLayout"
@@ -104,8 +104,10 @@
 
     </LinearLayout>
 
+    <!-- Barra de reproducción única: se usa igual con ExoPlayer o VLC, para que
+         no se note el cambio de motor. -->
     <LinearLayout
-        android:id="@+id/vlcControls"
+        android:id="@+id/playbackControls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
