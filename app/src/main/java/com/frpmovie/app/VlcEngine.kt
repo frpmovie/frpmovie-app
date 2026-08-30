@@ -17,11 +17,21 @@ object VlcEngine {
             instance ?: LibVLC(
                 context.applicationContext,
                 arrayListOf(
-                    "--network-caching=800",
+                    // 800ms daba el arranque más rápido posible, pero dejaba muy
+                    // poco colchón: en streams con calidad adaptativa, el corte al
+                    // cambiar de variante (nueva descarga a mitad de reproducción)
+                    // se notaba como un microcorte. Con el motor ya precalentado
+                    // (VlcEngine) el arranque sigue siendo rápido aun con más buffer.
+                    "--network-caching=1300",
+                    "--file-caching=1300",
                     "--http-reconnect",
                     "--no-drop-late-frames",
                     "--no-skip-frames",
-                    "--file-caching=800"
+                    // Comprime el rango dinámico del audio: evita que canales con
+                    // pistas 5.1/E-AC3 mezcladas a estéreo (downmix) suenen
+                    // "saturados"/distorsionados en los picos, sin afectar audible-
+                    // mente a los canales que ya vienen en estéreo normal.
+                    "--audio-filter=compressor"
                 )
             ).also { instance = it }
         }
