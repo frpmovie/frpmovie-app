@@ -124,11 +124,39 @@
         android:visibility="gone">
 
         <Button
+            android:id="@+id/btnRewind"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:text="⏪"
+            android:textSize="16sp"
+            android:textColor="@android:color/white"
+            android:background="@drawable/player_btn_bg"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="0dp"
+            android:focusable="true"
+            android:layout_marginEnd="8dp" />
+
+        <Button
             android:id="@+id/btnPlayPause"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
             android:text="⏸"
-            android:textSize="18sp"
+            android:textSize="24sp"
+            android:textColor="@android:color/white"
+            android:background="@drawable/player_btn_primary_bg"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="0dp"
+            android:focusable="true"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnForward"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:text="⏩"
+            android:textSize="16sp"
             android:textColor="@android:color/white"
             android:background="@drawable/player_btn_bg"
             android:minWidth="0dp"

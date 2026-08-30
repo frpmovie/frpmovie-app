@@ -242,6 +242,23 @@ class PlayerActivity : AppCompatActivity() {
         binding.btnPlayPause.text = if (playing) "⏸" else "▶"
     }
 
+    // Botones de retroceso/avance de 10s, ademas del arrastre en la barra.
+    private fun seekRelative(deltaMs: Long) {
+        if (usingVlc) {
+            val vp = vlcPlayer ?: return
+            val length = vp.length
+            val target = vp.time + deltaMs
+            vp.time = if (length > 0) target.coerceIn(0, length) else target.coerceAtLeast(0)
+        } else {
+            val p = player ?: return
+            val duration = p.duration
+            val target = p.currentPosition + deltaMs
+            p.seekTo(if (duration > 0) target.coerceIn(0, duration) else target.coerceAtLeast(0))
+        }
+        updatePlaybackProgress()
+        showOverlay()
+    }
+
     private fun formatTime(ms: Long): String {
         val totalSeconds = ms / 1000
         val h = totalSeconds / 3600
@@ -283,7 +300,9 @@ class PlayerActivity : AppCompatActivity() {
         binding.btnAudio.setOnClickListener { showTrackDialog(C.TRACK_TYPE_AUDIO) }
         binding.btnSubtitles.setOnClickListener { showTrackDialog(C.TRACK_TYPE_TEXT) }
         binding.btnRetry.setOnClickListener { restart() }
-        for (btn in listOf(binding.btnAspect, binding.btnAudio, binding.btnSubtitles, binding.btnPlayPause, binding.btnRetry)) {
+        binding.btnRewind.setOnClickListener { seekRelative(-10000) }
+        binding.btnForward.setOnClickListener { seekRelative(10000) }
+        for (btn in listOf(binding.btnAspect, binding.btnAudio, binding.btnSubtitles, binding.btnPlayPause, binding.btnRetry, binding.btnRewind, binding.btnForward)) {
             applyTvFocusEffect(btn)
         }
 

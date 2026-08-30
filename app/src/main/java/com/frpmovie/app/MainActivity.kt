@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.frpmovie.app.databinding.ActivityMainBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -192,8 +193,18 @@ class MainActivity : AppCompatActivity() {
         }
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val req = Request.Builder().url(streamsUrl).build()
-                val body = client.newCall(req).execute().body?.string() ?: "[]"
+                // Los streams y las categorías son dos pedidos independientes:
+                // lanzarlos en paralelo (en vez de uno detrás del otro) reduce
+                // a la mitad el tiempo de espera al abrir cada pestaña.
+                val streamsDeferred = async {
+                    val req = Request.Builder().url(streamsUrl).build()
+                    client.newCall(req).execute().body?.string() ?: "[]"
+                }
+                val catsDeferred = async {
+                    val reqCat = Request.Builder().url(catsUrl).build()
+                    client.newCall(reqCat).execute().body?.string() ?: "[]"
+                }
+                val body = streamsDeferred.await()
                 val arr = JSONArray(body)
                 val list = mutableListOf<Channel>()
                 for (i in 0 until arr.length()) {
@@ -210,8 +221,7 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
 
-                val reqCat = Request.Builder().url(catsUrl).build()
-                val bodyCat = client.newCall(reqCat).execute().body?.string() ?: "[]"
+                val bodyCat = catsDeferred.await()
                 val arrCat = JSONArray(bodyCat)
                 val catList = mutableListOf<Category>()
                 catList.add(Category("all", "📋 Todas", list.size))
