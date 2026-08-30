@@ -239,7 +239,7 @@ class PlayerActivity : AppCompatActivity() {
             binding.tvDuration.text = formatTime(durMs)
         }
         binding.tvPosition.text = formatTime(posMs)
-        binding.btnPlayPause.text = if (playing) "⏸" else "▶"
+        binding.btnPlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
     }
 
     // Botones de retroceso/avance de 10s, ademas del arrastre en la barra.
