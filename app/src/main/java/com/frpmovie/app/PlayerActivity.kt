@@ -76,14 +76,17 @@ class PlayerActivity : AppCompatActivity() {
         val wasHidden = binding.tvTitle.visibility != View.VISIBLE
         binding.tvTitle.visibility = View.VISIBLE
         binding.controlsRow.visibility = View.VISIBLE
-        binding.playbackControls.visibility = if (type != "live") View.VISIBLE else View.GONE
+        // Igual que en el reproductor de VLC: la barra de reproducción
+        // (retroceder/pausa/avanzar + progreso) se muestra siempre, sea
+        // canal en vivo, película o serie.
+        binding.playbackControls.visibility = View.VISIBLE
         binding.scrimTop.visibility = View.VISIBLE
         binding.scrimBottom.visibility = View.VISIBLE
         autoHideHandler.removeCallbacks(hideOverlayRunnable)
         autoHideHandler.postDelayed(hideOverlayRunnable, 4000)
         // En TV/control remoto, el primer control visible debe tener el foco de
         // una vez; si no, el usuario necesita adivinar hacia dónde mover el d-pad.
-        if (wasHidden && type != "live") {
+        if (wasHidden) {
             binding.btnPlayPause.requestFocus()
         }
     }
@@ -445,7 +448,7 @@ class PlayerActivity : AppCompatActivity() {
             vlcPlayer?.media = media
             media.release()
             vlcPlayer?.play()
-            if (type != "live") binding.playbackControls.visibility = View.VISIBLE
+            binding.playbackControls.visibility = View.VISIBLE
             positionHandler.removeCallbacks(positionRunnable)
             positionHandler.post(positionRunnable)
         } catch (e: Exception) {
