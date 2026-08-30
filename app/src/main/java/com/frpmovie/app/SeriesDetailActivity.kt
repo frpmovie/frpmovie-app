@@ -19,6 +19,7 @@ import org.json.JSONObject
 class SeriesDetailActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySeriesDetailBinding
     private val client = OkHttpClient()
+    private lateinit var server: String
     private lateinit var user: String
     private lateinit var pass: String
     private var seriesId: Int = 0
@@ -33,6 +34,7 @@ class SeriesDetailActivity : AppCompatActivity() {
         binding = ActivitySeriesDetailBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        server = intent.getStringExtra("server") ?: ""
         user = intent.getStringExtra("user") ?: ""
         pass = intent.getStringExtra("pass") ?: ""
         seriesId = intent.getIntExtra("seriesId", 0)
@@ -42,7 +44,7 @@ class SeriesDetailActivity : AppCompatActivity() {
         binding.btnBack.setOnClickListener { finish() }
 
         episodeAdapter = EpisodeAdapter(emptyList()) { episode ->
-            val url = Config.seriesUrl(user, pass, episode.id, episode.ext)
+            val url = Config.seriesUrl(server, user, pass, episode.id, episode.ext)
             val i = Intent(this, PlayerActivity::class.java)
             i.putExtra("url", url)
             i.putExtra("name", "$seriesName - ${episode.episodeNum}. ${episode.title}")
@@ -60,7 +62,7 @@ class SeriesDetailActivity : AppCompatActivity() {
         binding.tvEmpty.visibility = View.GONE
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val req = Request.Builder().url(Config.seriesInfo(user, pass, seriesId)).build()
+                val req = Request.Builder().url(Config.seriesInfo(server, user, pass, seriesId)).build()
                 val body = client.newCall(req).execute().body?.string() ?: "{}"
                 val json = JSONObject(body)
 
