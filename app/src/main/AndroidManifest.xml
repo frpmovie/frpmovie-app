@@ -17,7 +17,7 @@
         android:allowBackup="true"
         android:icon="@drawable/logo"
         android:roundIcon="@drawable/logo"
-        android:banner="@drawable/logo"
+        android:banner="@drawable/banner"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.FRPMovie"
@@ -40,6 +40,12 @@
         <!-- Pantalla principal (canales) -->
         <activity
             android:name=".MainActivity"
+            android:exported="false"
+            android:screenOrientation="unspecified" />
+
+        <!-- Detalle de serie: temporadas y episodios -->
+        <activity
+            android:name=".SeriesDetailActivity"
             android:exported="false"
             android:screenOrientation="unspecified" />
 

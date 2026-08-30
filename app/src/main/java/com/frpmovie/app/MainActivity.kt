@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.frpmovie.app.databinding.ActivityMainBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -19,11 +20,15 @@ import org.json.JSONArray
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private val client = OkHttpClient()
-    private lateinit var user: String
-    private lateinit var pass: String
+    private var mode = "xtream"
+    private var server = ""
+    private var user = ""
+    private var pass = ""
+    private var m3uUrl = ""
     private val allItems = mutableListOf<Channel>()
     private lateinit var adapter: ChannelAdapter
     private lateinit var catAdapter: CategoryAdapter
+    private lateinit var gridLayoutManager: GridLayoutManager
     private val categories = mutableListOf<Category>()
     private var currentTab = "live"
     private var currentCat = "all"
@@ -33,23 +38,54 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        user = intent.getStringExtra("user") ?: ""
-        pass = intent.getStringExtra("pass") ?: ""
-
-        adapter = ChannelAdapter(allItems) { item ->
-            val url = when (currentTab) {
-                "movies" -> Config.movieUrl(user, pass, item.streamId)
-                "series" -> Config.seriesUrl(user, pass, item.streamId)
-                else -> Config.liveUrl(user, pass, item.streamId)
-            }
-            val i = Intent(this, PlayerActivity::class.java)
-            i.putExtra("url", url)
-            i.putExtra("name", item.name)
-            i.putExtra("type", currentTab)
-            startActivity(i)
+        mode = intent.getStringExtra("mode") ?: "xtream"
+        if (mode == "m3u") {
+            m3uUrl = intent.getStringExtra("m3uUrl") ?: ""
+        } else {
+            server = intent.getStringExtra("server") ?: ""
+            user = intent.getStringExtra("user") ?: ""
+            pass = intent.getStringExtra("pass") ?: ""
         }
 
-        binding.recyclerChannels.layoutManager = GridLayoutManager(this, 3)
+        // Arrancar el motor de VLC (lo más lento de abrir una película/serie)
+        // en segundo plano desde ya, mientras el usuario navega el catálogo,
+        // para que ya esté listo cuando toque reproducir algo.
+        Thread { VlcEngine.get(applicationContext) }.start()
+
+        adapter = ChannelAdapter(allItems) { item ->
+            if (mode == "m3u") {
+                val directUrl = item.directUrl
+                if (directUrl != null) {
+                    val i = Intent(this, PlayerActivity::class.java)
+                    i.putExtra("url", directUrl)
+                    i.putExtra("name", item.name)
+                    i.putExtra("type", "live")
+                    startActivity(i)
+                }
+            } else if (currentTab == "series") {
+                val i = Intent(this, SeriesDetailActivity::class.java)
+                i.putExtra("server", server)
+                i.putExtra("user", user)
+                i.putExtra("pass", pass)
+                i.putExtra("seriesId", item.streamId)
+                i.putExtra("name", item.name)
+                i.putExtra("cover", item.logo)
+                startActivity(i)
+            } else {
+                val url = when (currentTab) {
+                    "movies" -> Config.movieUrl(server, user, pass, item.streamId)
+                    else -> Config.liveUrl(server, user, pass, item.streamId)
+                }
+                val i = Intent(this, PlayerActivity::class.java)
+                i.putExtra("url", url)
+                i.putExtra("name", item.name)
+                i.putExtra("type", currentTab)
+                startActivity(i)
+            }
+        }
+
+        gridLayoutManager = GridLayoutManager(this, 3)
+        binding.recyclerChannels.layoutManager = gridLayoutManager
         binding.recyclerChannels.adapter = adapter
 
         catAdapter = CategoryAdapter(categories) { cat ->
@@ -62,6 +98,14 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnMenu.setOnClickListener {
             binding.drawerLayout.openDrawer(androidx.core.view.GravityCompat.START)
+        }
+
+        binding.btnLogout.setOnClickListener {
+            getSharedPreferences("frp", MODE_PRIVATE).edit().clear().apply()
+            val i = Intent(this, LoginActivity::class.java)
+            i.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            startActivity(i)
+            finish()
         }
 
         binding.btnSearchIcon.setOnClickListener {
@@ -84,7 +128,17 @@ class MainActivity : AppCompatActivity() {
         binding.btnMovies.setOnClickListener { switchTab("movies") }
         binding.btnSeries.setOnClickListener { switchTab("series") }
 
-        switchTab("live")
+        if (mode == "m3u") {
+            // Una lista M3U no tiene la separación live/películas/series de
+            // Xtream Codes: todo es un único catálogo con categorías propias.
+            binding.tabRow.visibility = View.GONE
+            adapter.setContentType("live")
+            gridLayoutManager.spanCount = 3
+            loadContent()
+        } else {
+            binding.tabRow.visibility = View.VISIBLE
+            switchTab("live")
+        }
     }
 
     private fun switchTab(tab: String) {
@@ -93,10 +147,18 @@ class MainActivity : AppCompatActivity() {
         binding.etSearch.setText("")
         binding.etSearch.visibility = View.GONE
         val brand = androidx.core.content.ContextCompat.getColor(this, R.color.brand)
-        val transparent = android.graphics.Color.TRANSPARENT
-        binding.btnLive.setBackgroundColor(if (tab == "live") brand else transparent)
-        binding.btnMovies.setBackgroundColor(if (tab == "movies") brand else transparent)
-        binding.btnSeries.setBackgroundColor(if (tab == "series") brand else transparent)
+        val ink = androidx.core.content.ContextCompat.getColor(this, R.color.ink)
+        val muted = androidx.core.content.ContextCompat.getColor(this, R.color.muted)
+        for ((btn, id) in listOf(binding.btnLive to "live", binding.btnMovies to "movies", binding.btnSeries to "series")) {
+            val active = id == tab
+            btn.backgroundTintList = if (active) android.content.res.ColorStateList.valueOf(brand) else null
+            btn.setTextColor(if (active) ink else muted)
+        }
+        // Los logos de canales son chicos y caben bien en 3 columnas; las
+        // carátulas de películas/series se ven mejor más grandes, con menos
+        // columnas.
+        adapter.setContentType(tab)
+        gridLayoutManager.spanCount = if (tab == "live") 3 else 2
         loadContent()
     }
 
@@ -114,20 +176,35 @@ class MainActivity : AppCompatActivity() {
     private fun loadContent() {
         binding.progress.visibility = View.VISIBLE
         binding.tvCount.text = "Cargando..."
+        if (mode == "m3u") {
+            loadM3uContent()
+            return
+        }
+
         val streamsUrl = when (currentTab) {
-            "movies" -> Config.vodStreams(user, pass)
-            "series" -> Config.seriesStreams(user, pass)
-            else -> Config.liveStreams(user, pass)
+            "movies" -> Config.vodStreams(server, user, pass)
+            "series" -> Config.seriesStreams(server, user, pass)
+            else -> Config.liveStreams(server, user, pass)
         }
         val catsUrl = when (currentTab) {
-            "movies" -> Config.vodCategories(user, pass)
-            "series" -> Config.seriesCategories(user, pass)
-            else -> Config.liveCategories(user, pass)
+            "movies" -> Config.vodCategories(server, user, pass)
+            "series" -> Config.seriesCategories(server, user, pass)
+            else -> Config.liveCategories(server, user, pass)
         }
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val req = Request.Builder().url(streamsUrl).build()
-                val body = client.newCall(req).execute().body?.string() ?: "[]"
+                // Los streams y las categorías son dos pedidos independientes:
+                // lanzarlos en paralelo (en vez de uno detrás del otro) reduce
+                // a la mitad el tiempo de espera al abrir cada pestaña.
+                val streamsDeferred = async {
+                    val req = Request.Builder().url(streamsUrl).build()
+                    client.newCall(req).execute().body?.string() ?: "[]"
+                }
+                val catsDeferred = async {
+                    val reqCat = Request.Builder().url(catsUrl).build()
+                    client.newCall(reqCat).execute().body?.string() ?: "[]"
+                }
+                val body = streamsDeferred.await()
                 val arr = JSONArray(body)
                 val list = mutableListOf<Channel>()
                 for (i in 0 until arr.length()) {
@@ -144,8 +221,7 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
 
-                val reqCat = Request.Builder().url(catsUrl).build()
-                val bodyCat = client.newCall(reqCat).execute().body?.string() ?: "[]"
+                val bodyCat = catsDeferred.await()
                 val arrCat = JSONArray(bodyCat)
                 val catList = mutableListOf<Category>()
                 catList.add(Category("all", "📋 Todas", list.size))
@@ -182,11 +258,46 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    private fun loadM3uContent() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val req = Request.Builder().url(m3uUrl).build()
+                val body = client.newCall(req).execute().body?.string() ?: ""
+                val entries = M3uParser.parse(body)
+                val list = entries.mapIndexed { index, e ->
+                    Channel(streamId = index, name = e.name, logo = e.logo, category = e.group, directUrl = e.url)
+                }
+                val catList = mutableListOf<Category>()
+                catList.add(Category("all", "📋 Todas", list.size))
+                for (group in list.map { it.category }.distinct().sorted()) {
+                    catList.add(Category(group, group, list.count { it.category == group }))
+                }
+
+                withContext(Dispatchers.Main) {
+                    allItems.clear()
+                    allItems.addAll(list)
+                    catAdapter.update(catList)
+                    catAdapter.setSelected("all")
+                    currentCat = "all"
+                    adapter.update(allItems)
+                    binding.progress.visibility = View.GONE
+                    binding.tvCount.text = "${allItems.size} canales"
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    binding.progress.visibility = View.GONE
+                    binding.tvCount.text = "Error al cargar la lista"
+                }
+            }
+        }
+    }
 }
 
 data class Channel(
     val streamId: Int,
     val name: String,
     val logo: String,
-    val category: String
+    val category: String,
+    val directUrl: String? = null
 )

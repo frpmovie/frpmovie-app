@@ -8,13 +8,36 @@
         android:id="@+id/playerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        app:use_controller="true"
+        app:use_controller="false"
         app:show_buffering="when_playing" />
     <org.videolan.libvlc.util.VLCVideoLayout
         android:id="@+id/vlcLayout"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
+
+    <!-- Intercepta todos los toques sobre el video para distinguir toque
+         (mostrar/ocultar controles) de arrastre (brillo/volumen), y deja
+         pasar los botones reales porque están declarados después, encima. -->
+    <View
+        android:id="@+id/gestureLayer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <View
+        android:id="@+id/scrimTop"
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_gravity="top"
+        android:background="@drawable/scrim_top" />
+
+    <View
+        android:id="@+id/scrimBottom"
+        android:layout_width="match_parent"
+        android:layout_height="160dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/scrim_bottom" />
+
     <TextView
         android:id="@+id/tvTitle"
         android:layout_width="wrap_content"
@@ -28,4 +51,200 @@
         android:shadowDx="1"
         android:shadowDy="1"
         android:shadowRadius="3" />
+
+    <LinearLayout
+        android:id="@+id/controlsRow"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_margin="12dp"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/btnAspect"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:src="@drawable/ic_aspect"
+            android:scaleType="centerInside"
+            android:background="@drawable/player_btn_bg"
+            android:padding="14dp"
+            android:focusable="true"
+            android:contentDescription="Relación de aspecto"
+            android:layout_marginEnd="10dp" />
+
+        <ImageButton
+            android:id="@+id/btnAudio"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:src="@drawable/ic_volume"
+            android:scaleType="centerInside"
+            android:background="@drawable/player_btn_bg"
+            android:padding="14dp"
+            android:focusable="true"
+            android:contentDescription="Audio"
+            android:layout_marginEnd="10dp" />
+
+        <ImageButton
+            android:id="@+id/btnSubtitles"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:src="@drawable/ic_subtitles"
+            android:scaleType="centerInside"
+            android:background="@drawable/player_btn_bg"
+            android:padding="14dp"
+            android:focusable="true"
+            android:contentDescription="Subtítulos" />
+
+    </LinearLayout>
+
+    <!-- Barra de reproducción única: se usa igual con ExoPlayer o VLC, para que
+         no se note el cambio de motor. -->
+    <LinearLayout
+        android:id="@+id/playbackControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/player_bar_bg"
+        android:paddingStart="12dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/btnRewind"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:src="@drawable/ic_fast_rewind"
+            android:scaleType="centerInside"
+            android:background="@drawable/player_btn_bg"
+            android:padding="10dp"
+            android:focusable="true"
+            android:contentDescription="Retroceder 10 segundos"
+            android:layout_marginEnd="8dp" />
+
+        <ImageButton
+            android:id="@+id/btnPlayPause"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:src="@drawable/ic_pause"
+            android:scaleType="centerInside"
+            android:background="@drawable/player_btn_primary_bg"
+            android:padding="15dp"
+            android:focusable="true"
+            android:contentDescription="Pausar/reproducir"
+            android:layout_marginEnd="8dp" />
+
+        <ImageButton
+            android:id="@+id/btnForward"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:src="@drawable/ic_fast_forward"
+            android:scaleType="centerInside"
+            android:background="@drawable/player_btn_bg"
+            android:padding="10dp"
+            android:focusable="true"
+            android:contentDescription="Avanzar 10 segundos"
+            android:layout_marginEnd="12dp" />
+
+        <TextView
+            android:id="@+id/tvPosition"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="00:00"
+            android:textColor="@android:color/white"
+            android:textSize="13sp"
+            android:layout_marginEnd="8dp" />
+
+        <SeekBar
+            android:id="@+id/seekBar"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:focusable="true"
+            android:progressTint="@color/brand"
+            android:thumbTint="@color/brand"
+            android:max="1000" />
+
+        <TextView
+            android:id="@+id/tvDuration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="00:00"
+            android:textColor="@android:color/white"
+            android:textSize="13sp"
+            android:layout_marginStart="8dp" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/gestureIndicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="20dp"
+        android:background="@drawable/card_bg"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvGestureIcon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔊"
+            android:textSize="30sp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvGestureValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="100%"
+            android:textColor="@color/ink"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/errorOverlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="24dp"
+        android:background="@drawable/card_bg"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvError"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="No se pudo reproducir este canal"
+            android:textColor="@color/ink"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:layout_marginBottom="16dp" />
+
+        <Button
+            android:id="@+id/btnRetry"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Reintentar"
+            android:textColor="@android:color/white"
+            android:background="@drawable/btn_bg"
+            android:focusable="true"
+            android:paddingStart="28dp"
+            android:paddingEnd="28dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp" />
+
+    </LinearLayout>
 </FrameLayout>
