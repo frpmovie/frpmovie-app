@@ -27,6 +27,15 @@ class LoginActivity : AppCompatActivity() {
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Ayuda a confirmar en soporte que un dispositivo ya tiene instalada
+        // la última build (fecha común de confusión: "¿esto es lo nuevo?").
+        try {
+            val versionName = packageManager.getPackageInfo(packageName, 0).versionName
+            binding.tvVersion.text = "v$versionName"
+        } catch (e: Exception) {
+            // No crítico: si falla, simplemente no se muestra la versión.
+        }
+
         // Si ya inició sesión antes, entrar directo
         val prefs = getSharedPreferences("frp", MODE_PRIVATE)
         when (prefs.getString("mode", null)) {
