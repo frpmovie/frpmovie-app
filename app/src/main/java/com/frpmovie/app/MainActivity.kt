@@ -56,6 +56,10 @@ class MainActivity : AppCompatActivity() {
             if (mode == "m3u") {
                 val directUrl = item.directUrl
                 if (directUrl != null) {
+                    PlayerPlaylist.label = "Canales"
+                    PlayerPlaylist.items = allItems.mapNotNull { c ->
+                        c.directUrl?.let { PlayerPlaylist.Item(c.streamId, c.name, it, c.logo) }
+                    }
                     val i = Intent(this, PlayerActivity::class.java)
                     i.putExtra("url", directUrl)
                     i.putExtra("name", item.name)
@@ -75,6 +79,14 @@ class MainActivity : AppCompatActivity() {
                 val url = when (currentTab) {
                     "movies" -> Config.movieUrl(server, user, pass, item.streamId)
                     else -> Config.liveUrl(server, user, pass, item.streamId)
+                }
+                if (currentTab == "live") {
+                    PlayerPlaylist.label = "Canales"
+                    PlayerPlaylist.items = allItems.map {
+                        PlayerPlaylist.Item(it.streamId, it.name, Config.liveUrl(server, user, pass, it.streamId), it.logo)
+                    }
+                } else {
+                    PlayerPlaylist.clear()
                 }
                 val i = Intent(this, PlayerActivity::class.java)
                 i.putExtra("url", url)

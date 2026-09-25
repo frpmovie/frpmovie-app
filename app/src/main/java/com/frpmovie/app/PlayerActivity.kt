@@ -27,7 +27,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.frpmovie.app.databinding.ActivityPlayerBinding
+import com.frpmovie.app.databinding.DialogPlaylistBinding
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import kotlin.math.abs
@@ -42,6 +44,28 @@ class PlayerActivity : AppCompatActivity() {
     // Solo se permite un salto de motor (VLC -> Exo o Exo -> VLC) por
     // reproducción; si el respaldo también falla, se muestra el error.
     private var fallbackAttempted = false
+
+    // Antes, cualquier error de VLC (incluidos tropiezos de red transitorios
+    // de los que --http-reconnect se recupera solo) disparaba un cambio de
+    // motor completo al instante, lo que se sentía como que el video se
+    // "trababa y retrocedía unos segundos" sin necesidad. Ahora se da un
+    // margen corto para que VLC se reenganche solo antes de escalar.
+    private val errorRecoveryHandler = Handler(Looper.getMainLooper())
+    private var errorRecoveryPending = false
+    private val retryPlayRunnable = Runnable {
+        errorRecoveryPending = false
+        val vp = vlcPlayer
+        if (usingVlc && vp != null && !vp.isPlaying) {
+            vp.play()
+        }
+        errorRecoveryHandler.postDelayed(errorEscalateRunnable, 800)
+    }
+    private val errorEscalateRunnable = Runnable {
+        val vp = vlcPlayer
+        if (usingVlc && (vp == null || !vp.isPlaying)) {
+            failOrFallback()
+        }
+    }
 
     private val resizeModes = listOf(
         AspectRatioFrameLayout.RESIZE_MODE_FIT,
@@ -305,7 +329,11 @@ class PlayerActivity : AppCompatActivity() {
         binding.btnRetry.setOnClickListener { restart() }
         binding.btnRewind.setOnClickListener { seekRelative(-10000) }
         binding.btnForward.setOnClickListener { seekRelative(10000) }
-        for (btn in listOf(binding.btnAspect, binding.btnAudio, binding.btnSubtitles, binding.btnPlayPause, binding.btnRetry, binding.btnRewind, binding.btnForward)) {
+        binding.btnPlaylist.setOnClickListener { showPlaylistDialog() }
+        // Solo tiene sentido si quien abrió el reproductor (MainActivity para
+        // canales, SeriesDetailActivity para episodios) dejó algo en la lista.
+        binding.btnPlaylist.visibility = if (PlayerPlaylist.items.isNotEmpty()) View.VISIBLE else View.GONE
+        for (btn in listOf(binding.btnAspect, binding.btnAudio, binding.btnSubtitles, binding.btnPlayPause, binding.btnRetry, binding.btnRewind, binding.btnForward, binding.btnPlaylist)) {
             applyTvFocusEffect(btn)
         }
 
@@ -439,7 +467,12 @@ class PlayerActivity : AppCompatActivity() {
 
             vlcPlayer?.setEventListener { event ->
                 if (event.type == MediaPlayer.Event.EncounteredError) {
-                    runOnUiThread { failOrFallback() }
+                    runOnUiThread {
+                        if (!errorRecoveryPending) {
+                            errorRecoveryPending = true
+                            errorRecoveryHandler.postDelayed(retryPlayRunnable, 1000)
+                        }
+                    }
                 }
             }
 
@@ -580,8 +613,39 @@ class PlayerActivity : AppCompatActivity() {
         startPlayback()
     }
 
+    // Lista de "qué más ver desde acá" (otros canales en vivo, o los
+    // capítulos de la serie actual) sin salir del reproductor.
+    private fun showPlaylistDialog() {
+        val items = PlayerPlaylist.items
+        if (items.isEmpty()) return
+        val dialogBinding = DialogPlaylistBinding.inflate(layoutInflater)
+        dialogBinding.recyclerPlaylist.layoutManager = LinearLayoutManager(this)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(PlayerPlaylist.label)
+            .setView(dialogBinding.root)
+            .create()
+        dialogBinding.recyclerPlaylist.adapter = PlaylistAdapter(items, url) { item ->
+            dialog.dismiss()
+            switchTo(item)
+        }
+        dialog.show()
+    }
+
+    private fun switchTo(item: PlayerPlaylist.Item) {
+        if (item.url == url) return
+        url = item.url
+        binding.tvTitle.text = item.name
+        binding.errorOverlay.visibility = View.GONE
+        releasePlayers()
+        startPlayback()
+        showOverlay()
+    }
+
     private fun releasePlayers() {
         positionHandler.removeCallbacks(positionRunnable)
+        errorRecoveryHandler.removeCallbacks(retryPlayRunnable)
+        errorRecoveryHandler.removeCallbacks(errorEscalateRunnable)
+        errorRecoveryPending = false
         player?.release()
         player = null
         usingVlc = false

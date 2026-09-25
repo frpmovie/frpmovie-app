@@ -28,6 +28,7 @@ class SeriesDetailActivity : AppCompatActivity() {
 
     private val episodesBySeason = linkedMapOf<Int, List<Episode>>()
     private val seasonButtons = mutableMapOf<Int, Button>()
+    private var currentSeasonEpisodes: List<Episode> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,6 +46,15 @@ class SeriesDetailActivity : AppCompatActivity() {
 
         episodeAdapter = EpisodeAdapter(emptyList()) { episode ->
             val url = Config.seriesUrl(server, user, pass, episode.id, episode.ext)
+            PlayerPlaylist.label = "Capítulos"
+            PlayerPlaylist.items = currentSeasonEpisodes.map { e ->
+                PlayerPlaylist.Item(
+                    id = e.id,
+                    name = "$seriesName - ${e.episodeNum}. ${e.title}",
+                    url = Config.seriesUrl(server, user, pass, e.id, e.ext),
+                    logo = e.image
+                )
+            }
             val i = Intent(this, PlayerActivity::class.java)
             i.putExtra("url", url)
             i.putExtra("name", "$seriesName - ${episode.episodeNum}. ${episode.title}")
@@ -154,6 +164,7 @@ class SeriesDetailActivity : AppCompatActivity() {
             btn.backgroundTintList = if (selected) android.content.res.ColorStateList.valueOf(brand) else null
             btn.setTextColor(if (selected) ink else muted)
         }
-        episodeAdapter.update(episodesBySeason[seasonNum] ?: emptyList())
+        currentSeasonEpisodes = episodesBySeason[seasonNum] ?: emptyList()
+        episodeAdapter.update(currentSeasonEpisodes)
     }
 }
