@@ -17,7 +17,11 @@ class ChannelAdapter(
     // (verticales) necesitan proporciones distintas para verse bien.
     private var isPoster = false
 
-    inner class VH(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root)
+    inner class VH(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root) {
+        init {
+            binding.imageFrame.clipToOutline = true
+        }
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val binding = ItemChannelBinding.inflate(LayoutInflater.from(parent.context), parent, false)
@@ -35,7 +39,7 @@ class ChannelAdapter(
         params.height = ((if (isPoster) 170 else 90) * density).toInt()
         holder.binding.ivLogo.layoutParams = params
         holder.binding.ivLogo.scaleType = if (isPoster) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
-        val pad = if (isPoster) 0 else 8.px(density)
+        val pad = if (isPoster) 0 else 12.px(density)
         holder.binding.ivLogo.setPadding(pad, pad, pad, pad)
 
         if (ch.logo.startsWith("http")) {
@@ -52,8 +56,7 @@ class ChannelAdapter(
         holder.itemView.setOnClickListener { onClick(ch) }
         // Para Android TV: resaltar al enfocar
         holder.itemView.setOnFocusChangeListener { v, hasFocus ->
-            v.scaleX = if (hasFocus) 1.08f else 1f
-            v.scaleY = if (hasFocus) 1.08f else 1f
+            v.animate().scaleX(if (hasFocus) 1.06f else 1f).scaleY(if (hasFocus) 1.06f else 1f).setDuration(120).start()
         }
         holder.itemView.isFocusable = true
     }

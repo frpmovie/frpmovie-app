@@ -31,7 +31,7 @@ class CategoryAdapter(
     override fun onBindViewHolder(holder: VH, position: Int) {
         val cat = items[position]
         val context = holder.text.context
-        holder.text.text = "${cat.name}  ·  ${cat.count}"
+        holder.text.text = cat.name
         val selected = cat.id == selectedId
         holder.text.backgroundTintList = if (selected)
             ColorStateList.valueOf(ContextCompat.getColor(context, R.color.brand))

@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.GestureDetector
 import android.view.KeyEvent
@@ -12,8 +13,10 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import android.widget.SeekBar
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -26,30 +29,51 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.frpmovie.app.databinding.ActivityPlayerBinding
-import com.frpmovie.app.databinding.DialogPlaylistBinding
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import kotlin.math.abs
+import kotlin.math.max
 
 class PlayerActivity : AppCompatActivity() {
+
+    companion object {
+        // Sin avance del reloj durante este tiempo (y sin pausa del usuario)
+        // se considera que el stream quedó colgado y se reconecta solo.
+        private const val STALL_TIMEOUT_MS = 12000L
+        private const val MAX_RECONNECTS = 4
+        // Si la última reconexión fue hace más que esto, la reproducción venía
+        // sana y el contador de intentos vuelve a cero.
+        private const val HEALTHY_PLAYBACK_MS = 30000L
+        private const val LIVE_CACHING_MS = 1500
+        private const val VOD_CACHING_MS = 2500
+    }
+
     private lateinit var binding: ActivityPlayerBinding
     private var player: ExoPlayer? = null
     private var vlcPlayer: MediaPlayer? = null
     private var url: String = ""
     private var type: String = "live"
     private var usingVlc = false
-    // Solo se permite un salto de motor (VLC -> Exo o Exo -> VLC) por
-    // reproducción; si el respaldo también falla, se muestra el error.
+    // Solo se permite un salto de motor (VLC -> Exo) por intento; si el
+    // respaldo también falla, se reconecta (si ya venía andando) o se muestra
+    // el error (si nunca llegó a arrancar).
     private var fallbackAttempted = false
 
-    // Antes, cualquier error de VLC (incluidos tropiezos de red transitorios
-    // de los que --http-reconnect se recupera solo) disparaba un cambio de
-    // motor completo al instante, lo que se sentía como que el video se
-    // "trababa y retrocedía unos segundos" sin necesidad. Ahora se da un
-    // margen corto para que VLC se reenganche solo antes de escalar.
+    // --- Estado de salud de la reproducción ---
+    private var userPaused = false
+    private var everPlayed = false
+    private var lastKnownPositionMs = 0L
+    private var lastKnownDurationMs = 0L
+    private var resumePositionMs = 0L
+    private var lastObservedTime = -1L
+    private var lastProgressAt = 0L
+    private var reconnectAttempts = 0
+    private var lastReconnectAt = 0L
+
+    // Un error de VLC puede ser un tropiezo de red del que --http-reconnect se
+    // recupera solo; se da un margen corto antes de cambiar de motor.
     private val errorRecoveryHandler = Handler(Looper.getMainLooper())
     private var errorRecoveryPending = false
     private val retryPlayRunnable = Runnable {
@@ -74,15 +98,25 @@ class PlayerActivity : AppCompatActivity() {
     )
     private var resizeModeIndex = 0
 
-    // 100 = volumen normal. VLC soporta amplificar por software hasta 200
-    // (igual que el propio VLC de escritorio); ExoPlayer no, así que en vivo
-    // se limita a 100.
+    // 100 = volumen normal. VLC soporta amplificar por software hasta 200;
+    // ExoPlayer no, así que con él se limita a 100.
     private var volumePercent = 100
 
     private val autoHideHandler = Handler(Looper.getMainLooper())
+    private var overlayVisible = false
+
+    private var playlistOpen = false
+    private lateinit var playlistBackCallback: OnBackPressedCallback
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    // ------------------------------------------------------------------
+    // Overlay (título + botones)
+    // ------------------------------------------------------------------
 
     private fun hideOverlayNow() {
-        binding.tvTitle.visibility = View.GONE
+        overlayVisible = false
+        binding.titleBar.visibility = View.GONE
         binding.controlsRow.visibility = View.GONE
         binding.playbackControls.visibility = View.GONE
         binding.scrimTop.visibility = View.GONE
@@ -92,52 +126,68 @@ class PlayerActivity : AppCompatActivity() {
 
     private val hideOverlayRunnable = Runnable { hideOverlayNow() }
 
-    // Temporizador propio en vez del auto-ocultado nativo de PlayerView (que se
-    // reinicia con cada rebuffer, frecuente en IPTV inestable, y a veces nunca
-    // llega a ocultarse). Se usa la misma barra sin importar qué motor esté
-    // reproduciendo, para que el cambio VLC/ExoPlayer no se note visualmente.
     private fun showOverlay() {
-        val wasHidden = binding.tvTitle.visibility != View.VISIBLE
-        binding.tvTitle.visibility = View.VISIBLE
+        if (playlistOpen) return
+        val wasHidden = !overlayVisible
+        overlayVisible = true
+        binding.titleBar.visibility = View.VISIBLE
         binding.controlsRow.visibility = View.VISIBLE
-        // Igual que en el reproductor de VLC: la barra de reproducción
-        // (retroceder/pausa/avanzar + progreso) se muestra siempre, sea
-        // canal en vivo, película o serie.
         binding.playbackControls.visibility = View.VISIBLE
         binding.scrimTop.visibility = View.VISIBLE
         binding.scrimBottom.visibility = View.VISIBLE
         autoHideHandler.removeCallbacks(hideOverlayRunnable)
-        autoHideHandler.postDelayed(hideOverlayRunnable, 4000)
-        // En TV/control remoto, el primer control visible debe tener el foco de
-        // una vez; si no, el usuario necesita adivinar hacia dónde mover el d-pad.
+        autoHideHandler.postDelayed(hideOverlayRunnable, 4500)
+        // En TV/control remoto, el primer control visible debe tener el foco.
         if (wasHidden) {
             binding.btnPlayPause.requestFocus()
         }
     }
 
     private fun toggleOverlay() {
-        if (binding.tvTitle.visibility == View.VISIBLE) hideOverlayNow() else showOverlay()
+        if (overlayVisible) hideOverlayNow() else showOverlay()
     }
 
-    // Con control remoto (Android TV / Fire TV) no hay toques: el primer paso
-    // de cualquier tecla de dirección debe revelar los controles en vez de
-    // perderse en botones invisibles.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && binding.tvTitle.visibility != View.VISIBLE) {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            // Teclas de control remoto que funcionan siempre, se vea o no el overlay.
             when (event.keyCode) {
-                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
-                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
-                KeyEvent.KEYCODE_MENU -> {
-                    showOverlay()
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                    togglePlayPause()
                     return true
+                }
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                    seekRelative(10000)
+                    return true
+                }
+                KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                    seekRelative(-10000)
+                    return true
+                }
+                KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
+                    playAdjacent(1)
+                    return true
+                }
+                KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> {
+                    playAdjacent(-1)
+                    return true
+                }
+            }
+            // Con el panel de canales abierto, el d-pad navega la lista.
+            if (!playlistOpen && !overlayVisible) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_MENU -> {
+                        showOverlay()
+                        return true
+                    }
                 }
             }
         }
         return super.dispatchKeyEvent(event)
     }
 
-    // Pequeño zoom al enfocar con d-pad, igual que en las grillas de canales/episodios.
     private fun applyTvFocusEffect(view: View) {
         view.setOnFocusChangeListener { v, hasFocus ->
             v.scaleX = if (hasFocus) 1.12f else 1f
@@ -145,8 +195,10 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    // --- Gestos estilo Netflix: toque = mostrar/ocultar controles,
-    // arrastrar en la mitad izquierda = brillo, mitad derecha = volumen. ---
+    // ------------------------------------------------------------------
+    // Gestos: toque = mostrar/ocultar, arrastre izq. = brillo, der. = volumen
+    // ------------------------------------------------------------------
+
     private lateinit var gestureDetector: GestureDetector
     private val touchSlop by lazy { ViewConfiguration.get(this).scaledTouchSlop }
     private var dragStartX = 0f
@@ -158,8 +210,8 @@ class PlayerActivity : AppCompatActivity() {
 
     private val gestureIndicatorHideRunnable = Runnable { binding.gestureIndicator.visibility = View.GONE }
 
-    private fun showGestureIndicator(icon: String, value: String) {
-        binding.tvGestureIcon.text = icon
+    private fun showGestureIndicator(iconRes: Int, value: String) {
+        binding.ivGestureIcon.setImageResource(iconRes)
         binding.tvGestureValue.text = value
         binding.gestureIndicator.visibility = View.VISIBLE
         autoHideHandler.removeCallbacks(gestureIndicatorHideRunnable)
@@ -179,7 +231,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun setVolumePercent(v: Int) {
         volumePercent = v.coerceIn(0, maxVolumePercent())
         applyVolume()
-        showGestureIndicator(if (volumePercent == 0) "🔇" else "🔊", "$volumePercent%")
+        showGestureIndicator(if (volumePercent == 0) R.drawable.ic_volume_off else R.drawable.ic_volume, "$volumePercent%")
     }
 
     private fun currentBrightness(): Float {
@@ -197,7 +249,7 @@ class PlayerActivity : AppCompatActivity() {
         val lp = window.attributes
         lp.screenBrightness = clamped
         window.attributes = lp
-        showGestureIndicator("🔆", "${(clamped * 100).toInt()}%")
+        showGestureIndicator(R.drawable.ic_brightness, "${(clamped * 100).toInt()}%")
     }
 
     private fun handleGestureTouch(view: View, event: MotionEvent) {
@@ -236,13 +288,19 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    // Ni VLC ni PlayerView (con el controlador nativo desactivado) traen barra
-    // de progreso propia; se actualiza a mano para los dos motores por igual.
+    // ------------------------------------------------------------------
+    // Progreso + vigilancia de la reproducción (cada 500ms)
+    // ------------------------------------------------------------------
+
     private val positionHandler = Handler(Looper.getMainLooper())
     private val positionRunnable = object : Runnable {
         override fun run() {
-            updatePlaybackProgress()
+            // Se agenda primero: si checkPlaybackHealth() reconecta, el
+            // releasePlayers() de la reconexión cancela este tick y queda un
+            // solo ciclo corriendo (el que arranca el nuevo reproductor).
             positionHandler.postDelayed(this, 500)
+            updatePlaybackProgress()
+            checkPlaybackHealth()
         }
     }
 
@@ -261,15 +319,47 @@ class PlayerActivity : AppCompatActivity() {
             durMs = p.duration
             playing = p.isPlaying
         }
+        if (posMs > 0) lastKnownPositionMs = posMs
         if (durMs > 0) {
+            lastKnownDurationMs = durMs
             binding.seekBar.progress = ((posMs * 1000) / durMs).toInt()
             binding.tvDuration.text = formatTime(durMs)
+        } else {
+            binding.tvDuration.text = if (type == "live") "EN VIVO" else "--:--"
         }
-        binding.tvPosition.text = formatTime(posMs)
+        binding.tvPosition.text = formatTime(posMs.coerceAtLeast(0))
         binding.btnPlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
     }
 
-    // Botones de retroceso/avance de 10s, ademas del arrastre en la barra.
+    // Si el reloj de VLC deja de avanzar sin que el usuario haya pausado, el
+    // stream quedó colgado (típico cuando el servidor IPTV corta la conexión
+    // sin avisar): se reconecta solo en vez de quedarse congelado.
+    private fun checkPlaybackHealth() {
+        val now = SystemClock.elapsedRealtime()
+        val vp = vlcPlayer
+        if (!usingVlc || vp == null || userPaused || binding.errorOverlay.visibility == View.VISIBLE) {
+            lastProgressAt = now
+            if (userPaused) binding.bufferingSpinner.visibility = View.GONE
+            return
+        }
+        val t = vp.time
+        if (t != lastObservedTime) {
+            if (lastObservedTime > 0 && t > 0) {
+                everPlayed = true
+                binding.bufferingSpinner.visibility = View.GONE
+            }
+            lastObservedTime = t
+            lastProgressAt = now
+            return
+        }
+        // Solo se vigila una vez que el stream ya arrancó: el arranque inicial
+        // lo cubren los propios errores de VLC.
+        if (everPlayed && now - lastProgressAt > STALL_TIMEOUT_MS) {
+            lastProgressAt = now
+            reconnect()
+        }
+    }
+
     private fun seekRelative(deltaMs: Long) {
         if (usingVlc) {
             val vp = vlcPlayer ?: return
@@ -282,6 +372,32 @@ class PlayerActivity : AppCompatActivity() {
             val target = p.currentPosition + deltaMs
             p.seekTo(if (duration > 0) target.coerceIn(0, duration) else target.coerceAtLeast(0))
         }
+        lastProgressAt = SystemClock.elapsedRealtime()
+        updatePlaybackProgress()
+        showOverlay()
+    }
+
+    private fun togglePlayPause() {
+        if (usingVlc) {
+            val vp = vlcPlayer ?: return
+            if (vp.isPlaying) {
+                vp.pause()
+                userPaused = true
+            } else {
+                vp.play()
+                userPaused = false
+            }
+        } else {
+            val p = player ?: return
+            if (p.isPlaying) {
+                p.pause()
+                userPaused = true
+            } else {
+                p.play()
+                userPaused = false
+            }
+        }
+        lastProgressAt = SystemClock.elapsedRealtime()
         updatePlaybackProgress()
         showOverlay()
     }
@@ -294,6 +410,10 @@ class PlayerActivity : AppCompatActivity() {
         return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
     }
 
+    // ------------------------------------------------------------------
+    // Ciclo de vida
+    // ------------------------------------------------------------------
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
@@ -305,12 +425,9 @@ class PlayerActivity : AppCompatActivity() {
 
         url = intent.getStringExtra("url") ?: ""
         type = intent.getStringExtra("type") ?: "live"
-        val name = intent.getStringExtra("name") ?: "Reproduciendo"
-        binding.tvTitle.text = name
+        binding.tvTitle.text = intent.getStringExtra("name") ?: "Reproduciendo"
+        binding.tvLiveBadge.visibility = if (type == "live") View.VISIBLE else View.GONE
 
-        // El propio PlayerView ya no recibe toques directos (los intercepta
-        // gestureLayer para poder distinguir toque de arrastre), así que el
-        // mostrar/ocultar se maneja todo desde acá.
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 toggleOverlay()
@@ -329,24 +446,28 @@ class PlayerActivity : AppCompatActivity() {
         binding.btnRetry.setOnClickListener { restart() }
         binding.btnRewind.setOnClickListener { seekRelative(-10000) }
         binding.btnForward.setOnClickListener { seekRelative(10000) }
-        binding.btnPlaylist.setOnClickListener { showPlaylistDialog() }
+        binding.btnPlayPause.setOnClickListener { togglePlayPause() }
+        binding.btnPlaylist.setOnClickListener { showPlaylistPanel() }
+        binding.btnClosePlaylist.setOnClickListener { hidePlaylistPanel() }
+        binding.playlistScrim.setOnClickListener { hidePlaylistPanel() }
+        binding.recyclerPlaylist.layoutManager = LinearLayoutManager(this)
         // Solo tiene sentido si quien abrió el reproductor (MainActivity para
         // canales, SeriesDetailActivity para episodios) dejó algo en la lista.
         binding.btnPlaylist.visibility = if (PlayerPlaylist.items.isNotEmpty()) View.VISIBLE else View.GONE
-        for (btn in listOf(binding.btnAspect, binding.btnAudio, binding.btnSubtitles, binding.btnPlayPause, binding.btnRetry, binding.btnRewind, binding.btnForward, binding.btnPlaylist)) {
+        for (btn in listOf(
+            binding.btnAspect, binding.btnAudio, binding.btnSubtitles, binding.btnPlayPause,
+            binding.btnRetry, binding.btnRewind, binding.btnForward, binding.btnPlaylist
+        )) {
             applyTvFocusEffect(btn)
         }
 
-        binding.btnPlayPause.setOnClickListener {
-            if (usingVlc) {
-                val vp = vlcPlayer ?: return@setOnClickListener
-                if (vp.isPlaying) vp.pause() else vp.play()
-            } else {
-                val p = player ?: return@setOnClickListener
-                if (p.isPlaying) p.pause() else p.play()
+        playlistBackCallback = object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                hidePlaylistPanel()
             }
-            showOverlay()
         }
+        onBackPressedDispatcher.addCallback(this, playlistBackCallback)
+
         binding.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
                 // fromUser cubre tanto arrastrar con el dedo como mover con las
@@ -361,6 +482,7 @@ class PlayerActivity : AppCompatActivity() {
                     val duration = p?.duration ?: 0
                     if (p != null && duration > 0) p.seekTo((duration * progress) / 1000)
                 }
+                lastProgressAt = SystemClock.elapsedRealtime()
                 showOverlay()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar) {
@@ -374,29 +496,48 @@ class PlayerActivity : AppCompatActivity() {
         showOverlay()
     }
 
-    private fun startPlayback() {
-        // VLC reproduce prácticamente cualquier formato/códec (incluye
-        // AC-3/E-AC-3 y streams MPEG-TS "sucios" que ExoPlayer a veces
-        // rechaza), así que es el motor principal para todo — canales,
-        // películas y series. El motor de VLC se reutiliza entre
-        // reproducciones (VlcEngine) así que arranca rápido. ExoPlayer queda
-        // solo como respaldo silencioso si VLC truena un error.
+    override fun onStart() {
+        super.onStart()
+        if (vlcPlayer == null && player == null) {
+            // Al volver de segundo plano, las películas/series siguen donde
+            // iban en vez de empezar de cero; en vivo se retoma el directo.
+            startPlayback(if (type == "live") 0L else lastKnownPositionMs)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        autoHideHandler.removeCallbacksAndMessages(null)
+        releasePlayers()
+    }
+
+    // ------------------------------------------------------------------
+    // Motores de reproducción
+    // ------------------------------------------------------------------
+
+    private fun startPlayback(resumeAt: Long = 0L) {
+        // VLC reproduce prácticamente cualquier formato/códec, así que es el
+        // motor principal; ExoPlayer queda como respaldo si VLC falla.
+        resumePositionMs = resumeAt
         fallbackAttempted = false
+        userPaused = false
+        lastObservedTime = -1L
+        lastProgressAt = SystemClock.elapsedRealtime()
         switchToVlc()
     }
 
     private fun initPlayer() {
-        // Se llama solo como respaldo si VLC falló: hay que dejar todo en el
-        // estado correcto para ExoPlayer (apagar VLC, mostrar su superficie).
         usingVlc = false
         val vp = vlcPlayer
         vlcPlayer = null
         if (vp != null) {
+            vp.setEventListener(null as MediaPlayer.EventListener?)
             vp.detachViews()
             Thread { vp.stop(); vp.release() }.start()
         }
         binding.vlcLayout.visibility = View.GONE
         binding.playerView.visibility = View.VISIBLE
+        binding.bufferingSpinner.visibility = View.GONE
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -407,7 +548,7 @@ class PlayerActivity : AppCompatActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
 
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(10000, 25000, 1500, 3000)
+            .setBufferDurationsMs(15000, 40000, 1500, 3000)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -424,8 +565,11 @@ class PlayerActivity : AppCompatActivity() {
                 failOrFallback()
             }
 
-            // Por si acaso: si tampoco ExoPlayer tiene decodificador para el
-            // audio (poco probable ya que solo entra como respaldo de VLC).
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) everPlayed = true
+                if (state == Player.STATE_ENDED) onPlaybackEnded()
+            }
+
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                 val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 if (audioGroups.isNotEmpty() && audioGroups.none { it.isSupported }) {
@@ -434,8 +578,7 @@ class PlayerActivity : AppCompatActivity() {
             }
         })
 
-        // La URL de canales en vivo es un stream MPEG-TS crudo, no una lista HLS:
-        // forzar el mimetype de HLS aquí rompía la reproducción de esos canales.
+        // La URL de canales en vivo es un stream MPEG-TS crudo, no una lista HLS.
         val mimeType = when {
             url.contains(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
             type == "live" -> MimeTypes.VIDEO_MP2T
@@ -446,9 +589,15 @@ class PlayerActivity : AppCompatActivity() {
             .setMimeType(mimeType)
             .build()
 
-        player?.setMediaItem(mediaItem)
+        if (resumePositionMs > 0) {
+            player?.setMediaItem(mediaItem, resumePositionMs)
+        } else {
+            player?.setMediaItem(mediaItem)
+        }
         player?.prepare()
         player?.playWhenReady = true
+        positionHandler.removeCallbacks(positionRunnable)
+        positionHandler.post(positionRunnable)
     }
 
     private fun switchToVlc() {
@@ -457,31 +606,51 @@ class PlayerActivity : AppCompatActivity() {
         player = null
         binding.playerView.visibility = View.GONE
         binding.vlcLayout.visibility = View.VISIBLE
+        binding.bufferingSpinner.visibility = View.VISIBLE
 
         try {
             val engine = VlcEngine.get(this)
-            vlcPlayer = MediaPlayer(engine)
-            vlcPlayer?.attachViews(binding.vlcLayout, null, false, false)
+            val vp = MediaPlayer(engine)
+            vlcPlayer = vp
+            vp.attachViews(binding.vlcLayout, null, false, false)
             applyVlcScale()
             applyVolume()
 
-            vlcPlayer?.setEventListener { event ->
-                if (event.type == MediaPlayer.Event.EncounteredError) {
-                    runOnUiThread {
-                        if (!errorRecoveryPending) {
+            vp.setEventListener { event ->
+                when (event.type) {
+                    MediaPlayer.Event.Buffering -> {
+                        val percent = event.buffering
+                        runOnUiThread {
+                            if (vlcPlayer === vp) {
+                                binding.bufferingSpinner.visibility =
+                                    if (percent < 100f && !userPaused) View.VISIBLE else View.GONE
+                            }
+                        }
+                    }
+                    MediaPlayer.Event.Playing -> runOnUiThread {
+                        if (vlcPlayer === vp) binding.bufferingSpinner.visibility = View.GONE
+                    }
+                    MediaPlayer.Event.EncounteredError -> runOnUiThread {
+                        if (vlcPlayer === vp && !errorRecoveryPending) {
                             errorRecoveryPending = true
                             errorRecoveryHandler.postDelayed(retryPlayRunnable, 1000)
                         }
+                    }
+                    MediaPlayer.Event.EndReached -> runOnUiThread {
+                        if (vlcPlayer === vp) onPlaybackEnded()
                     }
                 }
             }
 
             val media = Media(engine, Uri.parse(url))
             media.setHWDecoderEnabled(true, false)
-            vlcPlayer?.media = media
+            media.addOption(":network-caching=" + (if (type == "live") LIVE_CACHING_MS else VOD_CACHING_MS))
+            if (resumePositionMs > 0) {
+                media.addOption(":start-time=" + (resumePositionMs / 1000.0))
+            }
+            vp.media = media
             media.release()
-            vlcPlayer?.play()
-            binding.playbackControls.visibility = View.VISIBLE
+            vp.play()
             positionHandler.removeCallbacks(positionRunnable)
             positionHandler.post(positionRunnable)
         } catch (e: Exception) {
@@ -489,16 +658,51 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    // Un solo salto de motor por reproducción: si VLC falla se intenta
-    // ExoPlayer (o viceversa si el que falla es el respaldo); si el segundo
-    // motor también falla, recién ahí se muestra el error.
     private fun failOrFallback() {
-        if (fallbackAttempted) {
+        if (!fallbackAttempted) {
+            fallbackAttempted = true
+            if (usingVlc) initPlayer() else switchToVlc()
+            return
+        }
+        // Los dos motores fallaron. Si ya venía reproduciendo, es un corte de
+        // red/servidor: se reconecta. Si nunca arrancó, el contenido no
+        // funciona y se avisa.
+        if (everPlayed) reconnect() else showError()
+    }
+
+    private fun reconnect() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastReconnectAt > HEALTHY_PLAYBACK_MS) reconnectAttempts = 0
+        if (reconnectAttempts >= MAX_RECONNECTS) {
+            releasePlayers()
             showError()
             return
         }
-        fallbackAttempted = true
-        if (usingVlc) initPlayer() else switchToVlc()
+        reconnectAttempts++
+        lastReconnectAt = now
+        val resumeAt = if (type == "live") 0L else lastKnownPositionMs
+        releasePlayers()
+        startPlayback(resumeAt)
+    }
+
+    // Fin del stream: en vivo nunca "termina", así que es un corte y se
+    // reconecta. En películas/series, si faltaba mucho también es un corte;
+    // si de verdad terminó, en series se pasa solo al siguiente capítulo.
+    private fun onPlaybackEnded() {
+        if (isFinishing) return
+        val reallyEnded = type != "live" && lastKnownDurationMs > 0 &&
+            lastKnownPositionMs >= lastKnownDurationMs - 30000
+        if (!reallyEnded) {
+            reconnect()
+            return
+        }
+        val next = adjacentPlaylistItem(1)
+        if (type == "series" && next != null) {
+            Toast.makeText(this, "Siguiente capítulo", Toast.LENGTH_SHORT).show()
+            switchTo(next)
+        } else {
+            finish()
+        }
     }
 
     private fun cycleAspectRatio() {
@@ -525,12 +729,12 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Pistas de audio / subtítulos
+    // ------------------------------------------------------------------
+
     private fun showTrackDialog(trackType: Int) {
-        if (usingVlc) {
-            showVlcTrackDialog(trackType)
-        } else {
-            showExoTrackDialog(trackType)
-        }
+        if (usingVlc) showVlcTrackDialog(trackType) else showExoTrackDialog(trackType)
     }
 
     private fun showVlcTrackDialog(trackType: Int) {
@@ -603,32 +807,92 @@ class PlayerActivity : AppCompatActivity() {
             .show()
     }
 
+    // ------------------------------------------------------------------
+    // Error / reinicio
+    // ------------------------------------------------------------------
+
     private fun showError() {
+        binding.bufferingSpinner.visibility = View.GONE
         binding.errorOverlay.visibility = View.VISIBLE
+        binding.btnRetry.requestFocus()
     }
 
     private fun restart() {
         binding.errorOverlay.visibility = View.GONE
+        reconnectAttempts = 0
+        lastReconnectAt = 0L
         releasePlayers()
-        startPlayback()
+        startPlayback(if (type == "live") 0L else lastKnownPositionMs)
     }
 
-    // Lista de "qué más ver desde acá" (otros canales en vivo, o los
-    // capítulos de la serie actual) sin salir del reproductor.
-    private fun showPlaylistDialog() {
+    // ------------------------------------------------------------------
+    // Panel lateral de canales / capítulos
+    // ------------------------------------------------------------------
+
+    private fun showPlaylistPanel() {
         val items = PlayerPlaylist.items
         if (items.isEmpty()) return
-        val dialogBinding = DialogPlaylistBinding.inflate(layoutInflater)
-        dialogBinding.recyclerPlaylist.layoutManager = LinearLayoutManager(this)
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(PlayerPlaylist.label)
-            .setView(dialogBinding.root)
-            .create()
-        dialogBinding.recyclerPlaylist.adapter = PlaylistAdapter(items, url) { item ->
-            dialog.dismiss()
+        hideOverlayNow()
+        playlistOpen = true
+        playlistBackCallback.isEnabled = true
+
+        val isChannels = PlayerPlaylist.label == "Canales"
+        binding.tvPlaylistTitle.text = PlayerPlaylist.label
+        binding.tvPlaylistCount.text = if (isChannels) "${items.size} canales disponibles" else "${items.size} capítulos"
+        val currentIndex = items.indexOfFirst { it.url == url }
+        binding.recyclerPlaylist.adapter = PlaylistAdapter(items, url, isChannels) { item ->
+            hidePlaylistPanel()
             switchTo(item)
         }
-        dialog.show()
+        val lm = binding.recyclerPlaylist.layoutManager as LinearLayoutManager
+        if (currentIndex >= 0) lm.scrollToPositionWithOffset(currentIndex, dp(120))
+
+        binding.playlistScrim.alpha = 0f
+        binding.playlistScrim.visibility = View.VISIBLE
+        binding.playlistScrim.animate().alpha(1f).setDuration(220).start()
+
+        val panel = binding.playlistPanel
+        panel.visibility = View.VISIBLE
+        panel.translationX = (if (panel.width > 0) panel.width else dp(360)).toFloat()
+        panel.animate()
+            .translationX(0f)
+            .setDuration(240)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
+
+        // En TV, el foco arranca sobre lo que se está viendo.
+        binding.recyclerPlaylist.post {
+            lm.findViewByPosition(max(currentIndex, 0))?.requestFocus()
+        }
+    }
+
+    private fun hidePlaylistPanel() {
+        if (!playlistOpen) return
+        playlistOpen = false
+        playlistBackCallback.isEnabled = false
+        val panel = binding.playlistPanel
+        panel.animate()
+            .translationX(panel.width.toFloat())
+            .setDuration(180)
+            .withEndAction { panel.visibility = View.GONE }
+            .start()
+        binding.playlistScrim.animate()
+            .alpha(0f)
+            .setDuration(180)
+            .withEndAction { binding.playlistScrim.visibility = View.GONE }
+            .start()
+    }
+
+    private fun adjacentPlaylistItem(offset: Int): PlayerPlaylist.Item? {
+        val items = PlayerPlaylist.items
+        val index = items.indexOfFirst { it.url == url }
+        if (index < 0) return null
+        return items.getOrNull(index + offset)
+    }
+
+    private fun playAdjacent(offset: Int) {
+        val item = adjacentPlaylistItem(offset) ?: return
+        switchTo(item)
     }
 
     private fun switchTo(item: PlayerPlaylist.Item) {
@@ -636,8 +900,13 @@ class PlayerActivity : AppCompatActivity() {
         url = item.url
         binding.tvTitle.text = item.name
         binding.errorOverlay.visibility = View.GONE
+        everPlayed = false
+        lastKnownPositionMs = 0L
+        lastKnownDurationMs = 0L
+        reconnectAttempts = 0
+        lastReconnectAt = 0L
         releasePlayers()
-        startPlayback()
+        startPlayback(0L)
         showOverlay()
     }
 
@@ -646,35 +915,24 @@ class PlayerActivity : AppCompatActivity() {
         errorRecoveryHandler.removeCallbacks(retryPlayRunnable)
         errorRecoveryHandler.removeCallbacks(errorEscalateRunnable)
         errorRecoveryPending = false
+        binding.bufferingSpinner.visibility = View.GONE
         player?.release()
         player = null
         usingVlc = false
 
         // stop()/release() del MediaPlayer son llamadas nativas que pueden
-        // bloquear un momento (sobre todo si el stream estaba reconectando por
-        // red), lo que congelaba la app al salir de un canal. detachViews() sí
-        // debe ir en el hilo principal (toca Views); el resto se libera en
-        // segundo plano. El motor LibVLC (VlcEngine) NO se libera acá: es
-        // compartido para toda la app y se reutiliza en la siguiente reproducción.
+        // bloquear un momento (sobre todo si el stream estaba reconectando),
+        // así que van en segundo plano. El motor LibVLC (VlcEngine) NO se
+        // libera: es compartido y se reutiliza en la siguiente reproducción.
         val vlcToRelease = vlcPlayer
         vlcPlayer = null
         if (vlcToRelease != null) {
+            vlcToRelease.setEventListener(null as MediaPlayer.EventListener?)
             vlcToRelease.detachViews()
             Thread {
                 vlcToRelease.stop()
                 vlcToRelease.release()
             }.start()
         }
-    }
-
-    override fun onStart() {
-        super.onStart()
-        if (!usingVlc) startPlayback()
-    }
-
-    override fun onStop() {
-        super.onStop()
-        autoHideHandler.removeCallbacksAndMessages(null)
-        releasePlayers()
     }
 }

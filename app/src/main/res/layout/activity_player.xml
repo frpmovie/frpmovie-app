@@ -27,30 +27,59 @@
     <View
         android:id="@+id/scrimTop"
         android:layout_width="match_parent"
-        android:layout_height="120dp"
+        android:layout_height="130dp"
         android:layout_gravity="top"
         android:background="@drawable/scrim_top" />
 
     <View
         android:id="@+id/scrimBottom"
         android:layout_width="match_parent"
-        android:layout_height="160dp"
+        android:layout_height="170dp"
         android:layout_gravity="bottom"
         android:background="@drawable/scrim_bottom" />
 
-    <TextView
-        android:id="@+id/tvTitle"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:id="@+id/titleBar"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:text=""
-        android:textColor="@android:color/white"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:shadowColor="@android:color/black"
-        android:shadowDx="1"
-        android:shadowDy="1"
-        android:shadowRadius="3" />
+        android:layout_gravity="top|start"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="276dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvLiveBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/live_badge_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:text="● EN VIVO"
+            android:textColor="@android:color/white"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="@android:color/white"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:shadowColor="@android:color/black"
+            android:shadowDx="1"
+            android:shadowDy="1"
+            android:shadowRadius="4" />
+
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/controlsRow"
@@ -195,6 +224,16 @@
 
     </LinearLayout>
 
+    <!-- Indicador de carga/re-buffer: así un corte de red se ve como "cargando"
+         y no como que la app se congeló. -->
+    <ProgressBar
+        android:id="@+id/bufferingSpinner"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_gravity="center"
+        android:indeterminateTint="@color/brand"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/gestureIndicator"
         android:layout_width="wrap_content"
@@ -202,16 +241,18 @@
         android:layout_gravity="center"
         android:orientation="vertical"
         android:gravity="center"
-        android:padding="20dp"
-        android:background="@drawable/card_bg"
+        android:paddingStart="28dp"
+        android:paddingEnd="28dp"
+        android:paddingTop="20dp"
+        android:paddingBottom="20dp"
+        android:background="@drawable/player_bar_bg"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/tvGestureIcon"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="🔊"
-            android:textSize="30sp"
+        <ImageView
+            android:id="@+id/ivGestureIcon"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_volume"
             android:layout_marginBottom="8dp" />
 
         <TextView
@@ -219,7 +260,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="100%"
-            android:textColor="@color/ink"
+            android:textColor="@android:color/white"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -240,7 +281,7 @@
             android:id="@+id/tvError"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="No se pudo reproducir este canal"
+            android:text="No se pudo reproducir este contenido"
             android:textColor="@color/ink"
             android:textSize="14sp"
             android:gravity="center"
@@ -258,6 +299,91 @@
             android:paddingEnd="28dp"
             android:paddingTop="10dp"
             android:paddingBottom="10dp" />
+
+    </LinearLayout>
+
+    <!-- Panel lateral de canales / capítulos (estilo guía de DirecTV):
+         semitransparente para que se siga viendo el video detrás. -->
+    <View
+        android:id="@+id/playlistScrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/playlist_scrim"
+        android:clickable="true"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/playlistPanel"
+        android:layout_width="360dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:orientation="vertical"
+        android:background="@drawable/playlist_panel_bg"
+        android:clickable="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="22dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="20dp"
+            android:paddingBottom="10dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvPlaylistTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@android:color/white"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvPlaylistCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="#B3FFFFFF"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/btnClosePlaylist"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_close"
+                android:scaleType="centerInside"
+                android:background="@drawable/player_btn_bg"
+                android:padding="11dp"
+                android:focusable="true"
+                android:contentDescription="Cerrar" />
+
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="22dp"
+            android:layout_marginEnd="22dp"
+            android:background="#1FFFFFFF" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recyclerPlaylist"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:paddingTop="8dp"
+            android:paddingBottom="16dp"
+            android:clipToPadding="false" />
 
     </LinearLayout>
 </FrameLayout>
