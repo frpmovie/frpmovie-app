@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Panel lateral semitransparente: deja ver el video detrás (más opaco
+     hacia el borde derecho, donde está el texto, para que se lea bien). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:type="linear"
+        android:angle="0"
+        android:startColor="#A6080B14"
+        android:endColor="#E0080B14" />
+    <corners
+        android:topLeftRadius="22dp"
+        android:bottomLeftRadius="22dp" />
+</shape>

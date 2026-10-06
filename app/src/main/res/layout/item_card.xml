@@ -1,34 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
+    android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:layout_margin="3dp"
     android:padding="4dp"
     android:background="@drawable/card_focus_bg"
     android:focusable="true"
     android:clickable="true">
 
     <FrameLayout
-        android:id="@+id/imageFrame"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:id="@+id/cardImageFrame"
+        android:layout_width="148dp"
+        android:layout_height="88dp"
         android:background="@drawable/card_image_bg">
 
         <ImageView
-            android:id="@+id/ivLogo"
+            android:id="@+id/ivCard"
             android:layout_width="match_parent"
-            android:layout_height="90dp"
+            android:layout_height="match_parent"
             android:scaleType="fitCenter" />
 
     </FrameLayout>
 
     <TextView
-        android:id="@+id/tvName"
-        android:layout_width="match_parent"
+        android:id="@+id/tvCardName"
+        android:layout_width="148dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text=""
         android:textColor="@color/ink"
         android:textSize="12sp"
         android:maxLines="2"

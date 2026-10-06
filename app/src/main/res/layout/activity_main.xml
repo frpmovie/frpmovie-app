@@ -1,153 +1,240 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.drawerlayout.widget.DrawerLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/drawerLayout"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg">
 
-    <!-- Contenido principal -->
+    <!-- Encabezado -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:background="@color/bg">
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="8dp">
+
+        <ImageView
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:src="@drawable/logo"
+            android:adjustViewBounds="true"
+            android:scaleType="fitCenter" />
+
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:padding="16dp"
-            android:gravity="center_vertical"
-            android:background="@color/panel">
-            <Button
-                android:id="@+id/btnMenu"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="☰"
-                android:textSize="18sp"
-                android:textColor="@color/ink"
-                android:background="@android:color/transparent"
-                android:minWidth="0dp"
-                android:paddingStart="0dp"
-                android:paddingEnd="12dp" />
-            <ImageView
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:src="@drawable/logo"
-                android:layout_marginEnd="8dp"
-                android:adjustViewBounds="true"
-                android:scaleType="fitCenter" />
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:orientation="vertical">
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="FRP Movie"
+                android:text="@string/app_name"
                 android:textColor="@color/ink"
                 android:textSize="20sp"
                 android:textStyle="bold" />
+
             <TextView
                 android:id="@+id/tvCount"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="end"
                 android:text=""
                 android:textColor="@color/muted"
-                android:textSize="13sp" />
-            <Button
-                android:id="@+id/btnSearchIcon"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🔍"
-                android:textSize="16sp"
-                android:textColor="@color/ink"
-                android:background="@android:color/transparent"
-                android:minWidth="0dp"
-                android:paddingStart="8dp"
-                android:paddingEnd="0dp" />
+                android:textSize="12sp" />
+
         </LinearLayout>
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:padding="8dp"
-            android:background="@color/panel">
-            <Button
-                android:id="@+id/btnLive"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="📺 En vivo"
-                android:textSize="13sp"
-                android:textColor="@color/ink"
-                android:background="@color/brand" />
-            <Button
-                android:id="@+id/btnMovies"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="🎬 Películas"
-                android:textSize="13sp"
-                android:textColor="@color/muted"
-                android:background="@android:color/transparent" />
-            <Button
-                android:id="@+id/btnSeries"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="🎭 Series"
-                android:textSize="13sp"
-                android:textColor="@color/muted"
-                android:background="@android:color/transparent" />
-        </LinearLayout>
-        <EditText
-            android:id="@+id/etSearch"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="🔍 Buscar..."
-            android:textColorHint="@color/muted"
-            android:textColor="@color/ink"
-            android:background="@drawable/input_bg"
-            android:padding="12dp"
-            android:layout_margin="12dp"
-            android:inputType="text"
-            android:visibility="gone" />
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent">
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/recyclerChannels"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:padding="8dp"
-                android:clipToPadding="false" />
-            <ProgressBar
-                android:id="@+id/progress"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:visibility="gone" />
-        </FrameLayout>
+
+        <ImageButton
+            android:id="@+id/btnSearchIcon"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:src="@drawable/ic_search"
+            android:scaleType="centerInside"
+            android:background="@drawable/icon_btn_bg"
+            android:padding="11dp"
+            android:focusable="true"
+            android:contentDescription="Buscar" />
+
+        <ImageButton
+            android:id="@+id/btnLogout"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_logout"
+            android:scaleType="centerInside"
+            android:background="@drawable/icon_btn_bg"
+            android:padding="11dp"
+            android:focusable="true"
+            android:contentDescription="Cerrar sesión" />
+
     </LinearLayout>
 
-    <!-- Menú lateral de categorías -->
-    <LinearLayout
-        android:layout_width="280dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="start"
-        android:orientation="vertical"
-        android:background="@color/panel">
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Categorías"
-            android:textColor="@color/ink"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:padding="16dp"
-            android:background="@color/bg" />
+    <EditText
+        android:id="@+id/etSearch"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="6dp"
+        android:hint="Buscar por nombre…"
+        android:textColorHint="@color/muted"
+        android:textColor="@color/ink"
+        android:background="@drawable/input_bg"
+        android:padding="12dp"
+        android:inputType="text"
+        android:imeOptions="actionSearch"
+        android:visibility="gone" />
+
+    <!-- Categorías como chips horizontales (siempre visibles, sin menú oculto) -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerCategories"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="4dp"
+        android:clipToPadding="false" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <!-- Inicio: filas por categoría, estilo Netflix -->
         <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/recyclerCategories"
+            android:id="@+id/recyclerRows"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:paddingBottom="16dp"
+            android:clipToPadding="false" />
+
+        <!-- Categoría elegida o búsqueda: grilla completa -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recyclerChannels"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="8dp"
+            android:clipToPadding="false"
+            android:visibility="gone" />
+
+        <ProgressBar
+            android:id="@+id/progress"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:indeterminateTint="@color/brand"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvEmpty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:padding="24dp"
+            android:gravity="center"
+            android:textColor="@color/muted"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+    <!-- Navegación inferior -->
+    <LinearLayout
+        android:id="@+id/tabRow"
+        android:layout_width="match_parent"
+        android:layout_height="66dp"
+        android:orientation="horizontal"
+        android:background="@drawable/bottom_nav_bg"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp">
+
+        <LinearLayout
+            android:id="@+id/btnLive"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/nav_item_bg"
+            android:focusable="true"
+            android:clickable="true">
+            <ImageView
+                android:id="@+id/ivNavLive"
+                android:layout_width="56dp"
+                android:layout_height="30dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_tv" />
+            <TextView
+                android:id="@+id/tvNavLive"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="En vivo"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/btnMovies"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/nav_item_bg"
+            android:focusable="true"
+            android:clickable="true">
+            <ImageView
+                android:id="@+id/ivNavMovies"
+                android:layout_width="56dp"
+                android:layout_height="30dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_movie" />
+            <TextView
+                android:id="@+id/tvNavMovies"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Películas"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/btnSeries"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/nav_item_bg"
+            android:focusable="true"
+            android:clickable="true">
+            <ImageView
+                android:id="@+id/ivNavSeries"
+                android:layout_width="56dp"
+                android:layout_height="30dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_series" />
+            <TextView
+                android:id="@+id/tvNavSeries"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Series"
+                android:textSize="11sp" />
+        </LinearLayout>
+
     </LinearLayout>
 
-</androidx.drawerlayout.widget.DrawerLayout>
+</LinearLayout>

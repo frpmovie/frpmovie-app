@@ -9,8 +9,8 @@ android {
         applicationId "com.frpmovie.app"
         minSdk 21
         targetSdk 34
-        versionCode 3
-        versionName "3.0"
+        versionCode 6
+        versionName "3.3"
     }
     signingConfigs {
         release {
@@ -28,6 +28,8 @@ android {
         }
     }
     compileOptions {
+        // Requerido por la extensión FFmpeg de ExoPlayer (Jellyfin).
+        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
@@ -52,6 +54,10 @@ dependencies {
     implementation 'androidx.media3:media3-exoplayer-smoothstreaming:1.2.1'
     implementation 'androidx.media3:media3-exoplayer-rtsp:1.2.1'
     implementation 'androidx.media3:media3-ui:1.2.1'
+    // Decodificadores de audio FFmpeg para ExoPlayer (AC-3, E-AC-3, DTS,
+    // TrueHD...). La versión debe coincidir exactamente con la de media3.
+    implementation 'org.jellyfin.media3:media3-ffmpeg-decoder:1.2.1+1'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
     // libVLC
     implementation 'org.videolan.android:libvlc-all:3.5.1'
     // Red e imágenes
