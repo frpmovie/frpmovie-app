@@ -1,7 +1,12 @@
 package com.frpmovie.app
 
 import android.app.AlertDialog
+import android.content.Context
+import android.media.AudioManager
+import android.media.audiofx.LoudnessEnhancer
+import android.net.wifi.WifiManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -26,8 +31,12 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.frpmovie.app.databinding.ActivityPlayerBinding
@@ -41,13 +50,16 @@ class PlayerActivity : AppCompatActivity() {
     companion object {
         // Sin avance del reloj durante este tiempo (y sin pausa del usuario)
         // se considera que el stream quedó colgado y se reconecta solo.
-        private const val STALL_TIMEOUT_MS = 12000L
+        private const val STALL_TIMEOUT_MS = 15000L
         private const val MAX_RECONNECTS = 4
         // Si la última reconexión fue hace más que esto, la reproducción venía
         // sana y el contador de intentos vuelve a cero.
         private const val HEALTHY_PLAYBACK_MS = 30000L
-        private const val LIVE_CACHING_MS = 1500
-        private const val VOD_CACHING_MS = 2500
+        // VLC ahora es solo el respaldo: se le da un colchón amplio para que,
+        // cuando entra, priorice no cortarse.
+        private const val LIVE_CACHING_MS = 3000
+        private const val VOD_CACHING_MS = 5000
+        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android) FRPMovie/3.3"
     }
 
     private lateinit var binding: ActivityPlayerBinding
@@ -60,6 +72,12 @@ class PlayerActivity : AppCompatActivity() {
     // respaldo también falla, se reconecta (si ya venía andando) o se muestra
     // el error (si nunca llegó a arrancar).
     private var fallbackAttempted = false
+    // Si ExoPlayer no pudo con este contenido y VLC sí, las reconexiones van
+    // directo a VLC en vez de volver a probar ExoPlayer cada vez.
+    private var preferVlc = false
+    private var loudnessEnhancer: LoudnessEnhancer? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var shownPlayingIcon: Boolean? = null
 
     // --- Estado de salud de la reproducción ---
     private var userPaused = false
@@ -218,13 +236,29 @@ class PlayerActivity : AppCompatActivity() {
         autoHideHandler.postDelayed(gestureIndicatorHideRunnable, 700)
     }
 
-    private fun maxVolumePercent() = if (usingVlc) 200 else 100
+    private fun maxVolumePercent() = 200
 
+    // VLC amplifica por software de forma nativa hasta 200. Con ExoPlayer, lo
+    // que pasa de 100 se amplifica con el LoudnessEnhancer del sistema sobre
+    // la sesión de audio del reproductor.
     private fun applyVolume() {
         if (usingVlc) {
             vlcPlayer?.setVolume(volumePercent)
-        } else {
-            player?.volume = (volumePercent / 100f).coerceIn(0f, 1f)
+            return
+        }
+        val p = player ?: return
+        p.volume = (volumePercent / 100f).coerceIn(0f, 1f)
+        val boost = volumePercent - 100
+        try {
+            if (boost > 0) {
+                val enhancer = loudnessEnhancer ?: LoudnessEnhancer(p.audioSessionId).also { loudnessEnhancer = it }
+                enhancer.setTargetGain(boost * 8)
+                enhancer.setEnabled(true)
+            } else {
+                loudnessEnhancer?.setEnabled(false)
+            }
+        } catch (e: Exception) {
+            // Algunos equipos no ofrecen el efecto; el volumen queda en 100%.
         }
     }
 
@@ -317,7 +351,9 @@ class PlayerActivity : AppCompatActivity() {
             val p = player ?: return
             posMs = p.currentPosition
             durMs = p.duration
-            playing = p.isPlaying
+            // playWhenReady y no isPlaying: mientras recarga no debe parpadear
+            // el ícono a "play" como si estuviera pausado.
+            playing = p.playWhenReady
         }
         if (posMs > 0) lastKnownPositionMs = posMs
         if (durMs > 0) {
@@ -328,21 +364,23 @@ class PlayerActivity : AppCompatActivity() {
             binding.tvDuration.text = if (type == "live") "EN VIVO" else "--:--"
         }
         binding.tvPosition.text = formatTime(posMs.coerceAtLeast(0))
-        binding.btnPlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
+        if (shownPlayingIcon != playing) {
+            shownPlayingIcon = playing
+            binding.btnPlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
+        }
     }
 
-    // Si el reloj de VLC deja de avanzar sin que el usuario haya pausado, el
-    // stream quedó colgado (típico cuando el servidor IPTV corta la conexión
-    // sin avisar): se reconecta solo en vez de quedarse congelado.
+    // Si el reloj deja de avanzar sin que el usuario haya pausado, el stream
+    // quedó colgado (típico cuando el servidor IPTV corta la conexión sin
+    // avisar): se reconecta solo en vez de quedarse congelado.
     private fun checkPlaybackHealth() {
         val now = SystemClock.elapsedRealtime()
-        val vp = vlcPlayer
-        if (!usingVlc || vp == null || userPaused || binding.errorOverlay.visibility == View.VISIBLE) {
+        val t: Long? = if (usingVlc) vlcPlayer?.time else player?.currentPosition
+        if (t == null || userPaused || binding.errorOverlay.visibility == View.VISIBLE) {
             lastProgressAt = now
             if (userPaused) binding.bufferingSpinner.visibility = View.GONE
             return
         }
-        val t = vp.time
         if (t != lastObservedTime) {
             if (lastObservedTime > 0 && t > 0) {
                 everPlayed = true
@@ -389,7 +427,7 @@ class PlayerActivity : AppCompatActivity() {
             }
         } else {
             val p = player ?: return
-            if (p.isPlaying) {
+            if (p.playWhenReady) {
                 p.pause()
                 userPaused = true
             } else {
@@ -498,6 +536,7 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        acquireWifiLock()
         if (vlcPlayer == null && player == null) {
             // Al volver de segundo plano, las películas/series siguen donde
             // iban en vez de empezar de cero; en vivo se retoma el directo.
@@ -509,6 +548,34 @@ class PlayerActivity : AppCompatActivity() {
         super.onStop()
         autoHideHandler.removeCallbacksAndMessages(null)
         releasePlayers()
+        releaseWifiLock()
+    }
+
+    // Sin esto, el Wi-Fi del equipo puede entrar en ahorro de energía durante
+    // la reproducción y el caudal tiene baches: microcortes que no se ven en
+    // apps como TiviMate/Televizo, que sí lo mantienen despierto.
+    private fun acquireWifiLock() {
+        try {
+            if (wifiLock == null) {
+                val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                } else {
+                    WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                }
+                wifiLock = wm.createWifiLock(mode, "frpmovie:playback").apply { setReferenceCounted(false) }
+            }
+            wifiLock?.acquire()
+        } catch (e: Exception) {
+            // Equipos sin Wi-Fi (TV por cable): no es crítico.
+        }
+    }
+
+    private fun releaseWifiLock() {
+        try {
+            if (wifiLock?.isHeld == true) wifiLock?.release()
+        } catch (e: Exception) {
+        }
     }
 
     // ------------------------------------------------------------------
@@ -516,17 +583,20 @@ class PlayerActivity : AppCompatActivity() {
     // ------------------------------------------------------------------
 
     private fun startPlayback(resumeAt: Long = 0L) {
-        // VLC reproduce prácticamente cualquier formato/códec, así que es el
-        // motor principal; ExoPlayer queda como respaldo si VLC falla.
+        // ExoPlayer es el motor principal: es el mismo que usan TiviMate o
+        // Televizo y el que mejor aguanta los baches de red (buffer de hasta
+        // 50s, reintentos automáticos). Con la extensión FFmpeg decodifica
+        // también AC-3/E-AC-3/DTS, que era lo único que antes obligaba a usar
+        // VLC. VLC queda de respaldo para lo que ExoPlayer no pueda abrir.
         resumePositionMs = resumeAt
         fallbackAttempted = false
         userPaused = false
         lastObservedTime = -1L
         lastProgressAt = SystemClock.elapsedRealtime()
-        switchToVlc()
+        if (preferVlc) switchToVlc() else initExoPlayer()
     }
 
-    private fun initPlayer() {
+    private fun initExoPlayer() {
         usingVlc = false
         val vp = vlcPlayer
         vlcPlayer = null
@@ -541,67 +611,105 @@ class PlayerActivity : AppCompatActivity() {
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setUserAgent("Mozilla/5.0 (Android) ExoPlayer FRPMovie")
-            .setConnectTimeoutMs(15000)
+            .setUserAgent(USER_AGENT)
+            .setConnectTimeoutMs(12000)
             .setReadTimeoutMs(15000)
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
+        // Ajustes de TS pensados para IPTV: arrancar en cualquier keyframe (no
+        // solo IDR, que en muchos canales tarda) y detectar cuadros en streams
+        // H.264 sin delimitadores; también habilita audio DTS dentro de TS.
+        val extractorsFactory = DefaultExtractorsFactory()
+            .setTsExtractorFlags(
+                DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                    DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS or
+                    DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS
+            )
+            .setConstantBitrateSeekingEnabled(true)
 
+        // Un corte de red se reintenta solo (con espera creciente) sin cortar
+        // la reproducción, en vez de tirar error al primer tropiezo.
+        val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory, extractorsFactory)
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(8))
+
+        // Buffer amplio: hasta 50s por delante en películas/series; arranca con
+        // 2s y, después de un corte, junta 4s de colchón antes de seguir para
+        // no volver a cortarse enseguida.
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15000, 40000, 1500, 3000)
-            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBufferDurationsMs(20000, 50000, 2000, 4000)
             .build()
 
-        player = ExoPlayer.Builder(this)
+        // FFmpeg entra solo cuando el equipo no tiene decodificador propio para
+        // el audio (AC-3, E-AC-3, DTS, TrueHD...).
+        val renderersFactory = DefaultRenderersFactory(this)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            .setEnableDecoderFallback(true)
+
+        val p = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .build()
-        binding.playerView.player = player
+        player = p
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        p.audioSessionId = audioManager.generateAudioSessionId()
+        binding.playerView.player = p
         binding.playerView.resizeMode = resizeModes[resizeModeIndex]
         applyVolume()
 
-        player?.addListener(object : Player.Listener {
+        p.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                failOrFallback()
+                if (player !== p) return
+                if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    p.seekToDefaultPosition()
+                    p.prepare()
+                    return
+                }
+                // Error de red (códigos 2xxx) en algo que ya venía andando: es
+                // un corte del servidor, se reconecta con el mismo motor.
+                val networkError = error.errorCode in 2000..2999
+                if (everPlayed && networkError) reconnect() else failOrFallback()
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) everPlayed = true
             }
 
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) everPlayed = true
-                if (state == Player.STATE_ENDED) onPlaybackEnded()
+                if (player === p && state == Player.STATE_ENDED) onPlaybackEnded()
             }
 
+            // Si aun con FFmpeg no hay cómo decodificar el audio o el video
+            // (p. ej. HEVC 10-bit en un equipo sin soporte), pasa a VLC, que
+            // decodifica por software.
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
-                if (audioGroups.isNotEmpty() && audioGroups.none { it.isSupported }) {
-                    failOrFallback()
-                }
+                if (player !== p) return
+                val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                val video = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+                val audioBroken = audio.isNotEmpty() && audio.none { it.isSupported }
+                val videoBroken = video.isNotEmpty() && video.none { it.isSupported }
+                if (audioBroken || videoBroken) failOrFallback()
             }
         })
 
-        // La URL de canales en vivo es un stream MPEG-TS crudo, no una lista HLS.
-        val mimeType = when {
-            url.contains(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
-            type == "live" -> MimeTypes.VIDEO_MP2T
-            else -> null
-        }
+        val mimeType = if (url.contains("m3u8", ignoreCase = true)) MimeTypes.APPLICATION_M3U8 else null
         val mediaItem = MediaItem.Builder()
             .setUri(Uri.parse(url))
             .setMimeType(mimeType)
             .build()
 
         if (resumePositionMs > 0) {
-            player?.setMediaItem(mediaItem, resumePositionMs)
+            p.setMediaItem(mediaItem, resumePositionMs)
         } else {
-            player?.setMediaItem(mediaItem)
+            p.setMediaItem(mediaItem)
         }
-        player?.prepare()
-        player?.playWhenReady = true
+        p.prepare()
+        p.playWhenReady = true
         positionHandler.removeCallbacks(positionRunnable)
         positionHandler.post(positionRunnable)
     }
 
     private fun switchToVlc() {
         usingVlc = true
+        releaseLoudnessEnhancer()
         player?.release()
         player = null
         binding.playerView.visibility = View.GONE
@@ -661,7 +769,12 @@ class PlayerActivity : AppCompatActivity() {
     private fun failOrFallback() {
         if (!fallbackAttempted) {
             fallbackAttempted = true
-            if (usingVlc) initPlayer() else switchToVlc()
+            if (usingVlc) {
+                initExoPlayer()
+            } else {
+                preferVlc = true
+                switchToVlc()
+            }
             return
         }
         // Los dos motores fallaron. Si ya venía reproduciendo, es un corte de
@@ -905,9 +1018,18 @@ class PlayerActivity : AppCompatActivity() {
         lastKnownDurationMs = 0L
         reconnectAttempts = 0
         lastReconnectAt = 0L
+        preferVlc = false
         releasePlayers()
         startPlayback(0L)
         showOverlay()
+    }
+
+    private fun releaseLoudnessEnhancer() {
+        try {
+            loudnessEnhancer?.release()
+        } catch (e: Exception) {
+        }
+        loudnessEnhancer = null
     }
 
     private fun releasePlayers() {
@@ -916,6 +1038,8 @@ class PlayerActivity : AppCompatActivity() {
         errorRecoveryHandler.removeCallbacks(errorEscalateRunnable)
         errorRecoveryPending = false
         binding.bufferingSpinner.visibility = View.GONE
+        shownPlayingIcon = null
+        releaseLoudnessEnhancer()
         player?.release()
         player = null
         usingVlc = false

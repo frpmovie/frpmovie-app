@@ -17,8 +17,9 @@ object VlcEngine {
                 context.applicationContext,
                 arrayListOf(
                     // Valor base; PlayerActivity lo ajusta por medio (en vivo vs.
-                    // película/serie) con la opción :network-caching.
-                    "--network-caching=1500",
+                    // película/serie) con la opción :network-caching. VLC es el
+                    // motor de respaldo, así que prioriza no cortarse.
+                    "--network-caching=3000",
                     "--http-reconnect",
                     // Si un cuadro llega tarde, VLC lo descarta y sigue sincronizado
                     // (igual que la app oficial de VLC). Forzar a mostrar todos los
